@@ -1,0 +1,20 @@
+# Generated builds and packages
+**/bin/
+**/obj/
+publish/
+Publish/
+buildPublish/
+**/build/
+**/dist/
+# Local IDE files and Python caches
+.idea/
+__pycache__/
+*.py[cod]
+*~
+# DKMS compiler output
+native-lightbar/*.o
+native-lightbar/*.ko
+native-lightbar/*.mod*
+native-lightbar/.*.cmd
+native-lightbar/Module.symvers
+native-lightbar/modules.order

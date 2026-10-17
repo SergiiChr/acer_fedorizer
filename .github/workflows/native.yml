@@ -1,0 +1,35 @@
+name: Native build and tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Validate installer scripts
+        run: bash -n setup.sh scripts/*.sh
+      - name: Test native controls
+        run: python3 -m unittest discover -s tests -v
+      - name: Test socket client and lighting drafts
+        run: dotnet run --project tests/client-tests/ClientTests.csproj -c Release
+      - name: Build GUI
+        run: ./setup.sh --build --no-deps
+      - name: Package native components
+        run: scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: damx-native
+          path: |
+            publish/damx-native.tar.gz
+            publish/damx-native-source.tar.gz
+            publish/damx-native.tar.gz.sha256

@@ -1,0 +1,28 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only; see NOTICE.md. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DivAcerManagerMax.DisplaySettings">
+    <ScrollViewer>
+        <StackPanel Margin="10,0,20,0" Spacing="12">
+            <TextBlock Text="Display" Classes="SectionHeader" />
+            <Border Classes="Card">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+                        <TextBlock Text="Native SDR color management" Classes="SubHeader"
+                                   VerticalAlignment="Center" TextWrapping="Wrap" />
+                        <ToggleSwitch x:Name="NativeSdrToggle" Grid.Column="1"
+                                      IsEnabled="False" OnContent="On" OffContent="Off"
+                                      IsCheckedChanged="NativeSdrChanged"
+                                      AutomationProperties.Name="Native SDR color management" />
+                    </Grid>
+                    <TextBlock Text="Reduce oversaturated SDR colors on supported wide-gamut built-in displays. Turn off to restore the default color mode."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <TextBlock x:Name="DisplayStatus" Text="Checking display support…" TextWrapping="Wrap" />
+                    <TextBlock Text="Saved across sessions. Your display may briefly flicker when applying a change. This control is separate from HDR and ICC profile selection."
+                               TextWrapping="Wrap" Opacity="0.7" />
+                    <Button x:Name="RefreshDisplayButton" Content="Refresh" Click="RefreshClicked" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,7 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DivAcerManagerMax.InternalsManager" Title="Native control diagnostics" Width="760" Height="620">
+    <DockPanel Margin="20">
+        <Button DockPanel.Dock="Top" Content="Refresh detected controls" Click="Refresh_Click" Margin="0,0,0,12" />
+        <TextBox x:Name="Diagnostics" AcceptsReturn="True" IsReadOnly="True" TextWrapping="Wrap" />
+    </DockPanel>
+</Window>
