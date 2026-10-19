@@ -9,7 +9,7 @@ as_root() {
 . /etc/os-release
 case "$ID" in
     fedora)
-        packages=(python3 python3-gobject python3-cairo gtk4 libadwaita kmod shadow-utils procps-ng)
+        packages=(python3 python3-gobject python3-cairo gtk4 libadwaita kmod shadow-utils procps-ng tar util-linux)
         if lightbar_supported; then packages+=(dkms gcc make "kernel-devel-$(uname -r)"); fi
         as_root dnf install -y "${packages[@]}"
         ;;
@@ -18,7 +18,7 @@ case "$ID" in
             debian:13|ubuntu:24.04) ;;
             *) echo 'GTK setup supports Debian 13 or Ubuntu 24.04; libadwaita 1.4+ is required.' >&2; exit 1 ;;
         esac
-        packages=(python3 python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 kmod passwd procps)
+        packages=(python3 python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 kmod passwd procps tar util-linux)
         if lightbar_supported; then packages+=(dkms build-essential "linux-headers-$(uname -r)"); fi
         as_root apt-get update
         as_root apt-get install -y "${packages[@]}"

@@ -28,7 +28,15 @@ for system changes. The GUI itself runs without administrator privileges.
 Existing or older installations trigger
 `This will completely overwrite your installation. Proceed? [y/n]`.
 Only `y` continues; cancellation changes nothing. Reinstallation resets saved
-lighting state. The upgrade cleanup module removes the former installation's
+lighting state only after a successful replacement. Before removing an existing
+installation, setup stages the new app and builds/signs the lightbar module in
+private DKMS trees. The new service must answer a bounded startup ping before
+the recovery snapshot is discarded. A subsequent driver or service failure restores the previous
+app, settings, service state, groups, and driver files/registrations. If rollback
+itself fails, setup reports the retained recovery archive rather than deleting it.
+Dependency-package changes are outside this app rollback; an uncatchable process
+kill or power loss may require recovery from the retained snapshot.
+The upgrade cleanup module removes the former installation's
 service, socket, files, group, and driver registrations, so both daemons cannot
 compete. OS packages shared with other applications and this downloaded folder
 are retained during uninstall.

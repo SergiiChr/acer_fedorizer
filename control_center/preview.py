@@ -27,6 +27,7 @@ class PreviewClient:
         if command=='get_keyboard_layout': return layout()
         if command=='set_thermal_profile': self.state['thermal_profile']['current']=params['profile']
         elif command=='set_lighting': self.state['lighting_state'][params['target']]=dict(params)
+        elif command=='set_per_key': self.state['lighting_state']['per_key']=copy.deepcopy(params)
         elif command=='set_fan_speed': self.state['fan_speed']={k:str(params[k]) for k in ('cpu','gpu')}
         elif command.startswith('set_') and 'enabled' in params: self.state[command[4:]]='1' if params['enabled'] else '0'
         return copy.deepcopy(self.state)

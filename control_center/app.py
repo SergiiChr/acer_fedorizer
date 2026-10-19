@@ -692,7 +692,9 @@ class KeyEditor(Adw.Window):
         self.canvas.on_selection=lambda count:self.selection.set_text(f'{count} keys selected' if count else 'No keys selected')
         row=box(12,True); row.append(label('Brightness','dim-label'))
         self.brightness=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
-        self.brightness.set_value(80); self.brightness.set_draw_value(True); self.brightness.set_hexpand(True)
+        saved_brightness=parent.state.get('lighting_state',{}).get('per_key',{}).get('brightness',80)
+        if not isinstance(saved_brightness,(int,float)) or isinstance(saved_brightness,bool) or not math.isfinite(saved_brightness): saved_brightness=80
+        self.brightness.set_value(max(0,min(100,saved_brightness))); self.brightness.set_draw_value(True); self.brightness.set_hexpand(True)
         row.append(self.brightness)
         self.apply=button('Apply keyboard colors',self.submit,'suggested-action'); row.append(self.apply); content.append(row)
         self.result=label('The current preview is an editing draft, not a hardware readback.','dim-label'); content.append(self.result)

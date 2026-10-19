@@ -19,6 +19,8 @@ not an offline test. Do not use diagnostic exercise mode for routine checks.
 - `control_center/preview.py`: isolated preview data for screenshots and UI tests.
 - `hardware/`: preserved sysfs/HID controls, socket daemon, dedicated-button listener.
 - `native-lightbar/`: separate, strictly model-scoped GPLv2 kernel module.
+- `scripts/install-transaction.sh`: preflight driver build and rollback of app-owned files, groups, drivers, and service states.
+- `scripts/wait-daemon.py`: bounded, read-only service readiness ping before installation commits.
 - `scripts/legacy-install.sh`: names retained solely to remove earlier installations.
 
 The app uses `/run/acer-fedorizer.sock` and `/var/lib/acer-fedorizer/lighting.json`.
@@ -40,9 +42,11 @@ scripts/package.sh
 
 UI checks require a graphical display; CI uses Xvfb and a private D-Bus session.
 Tests use temporary sysfs trees, fake system/package commands, and local sockets.
+Installer failure tests cover missing headers, build/signing, driver install/load,
+service startup/health/readiness, legacy rollback, and retained recovery data on restore failure.
 They do not install the app or change firmware. UI smoke tests check real widget
 navigation, profile-name/hardware mappings, single-selection mode tiles, fan-slider sensitivity, draft independence, refresh preservation, palette restrictions, and
-no startup writes, rendered credits/links, asynchronous status/error states, and target-specific Wave color. Preview screenshots are actual GTK renders, visibly labelled.
+no startup writes, rendered credits/links, asynchronous status/error states, target-specific Wave color, and per-key brightness preservation across edits/apply/reopen. Preview screenshots are actual GTK renders, visibly labelled.
 
 No polling may overwrite editing drafts or apply a setting automatically. Worker
 threads must not touch GTK. Stop timers on window closure, keep GPU sampling
