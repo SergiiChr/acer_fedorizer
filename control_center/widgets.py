@@ -3,6 +3,7 @@ import math
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, Gdk, Pango, PangoCairo
+from .keyboard import keycaps
 
 
 def label(text='', css=None, xalign=0):
@@ -67,6 +68,8 @@ class HistoryChart(Gtk.DrawingArea):
 USAGES={4+i:chr(65+i) for i in range(26)}
 USAGES.update({30+i:str((i+1)%10) for i in range(10)})
 USAGES.update({40:'Enter',41:'Esc',42:'Back',43:'Tab',44:'Space',57:'Caps',79:'→',80:'←',81:'↓',82:'↑',224:'Ctrl',225:'Shift',226:'Alt',227:'Super',228:'Ctrl',229:'Shift',230:'Alt'})
+USAGES.update({45:'−',46:'=',47:'[',48:']',49:'\\',51:';',52:"'",53:'`',54:',',55:'.',56:'/',70:'PrtSc',73:'Ins',76:'Del',83:'Num',84:'/',85:'×',86:'−',87:'+',88:'Enter',98:'0',99:'.',101:'Menu',114:'Mute'})
+USAGES.update({89+i:str(i+1) for i in range(9)})
 USAGES.update({58+i:'F'+str(i+1) for i in range(12)})
 
 
@@ -88,27 +91,33 @@ class KeyboardCanvas(Gtk.DrawingArea):
         if not self.lamps:
             cr.set_source_rgba(.6,.65,.7,.8); cr.set_font_size(13)
             cr.move_to(24,height/2); cr.show_text('Keyboard layout is unavailable'); return
-        xs=sorted(set(l['x'] for l in self.lamps)); ys=sorted(set(l['y'] for l in self.lamps))
-        gaps=[b-a for a,b in zip(xs,xs[1:]) if b>a]
-        pitch=sorted(gaps)[len(gaps)//2] if gaps else 100
-        sx=(width-24)/max(pitch,max(xs)-min(xs)+pitch*1.5)
-        sy=(height-24)/max(1,len(ys))
-        for lamp in self.lamps:
+        caps=keycaps(self.lamps)
+        minx=min(x for _,x,y,w,h in caps); miny=min(y for _,x,y,w,h in caps)
+        spanx=max(x+w for _,x,y,w,h in caps)-minx
+        spany=max(y+h for _,x,y,w,h in caps)-miny
+        scale=min((width-36)/spanx,(height-30)/spany)
+        ox=(width-spanx*scale)/2; oy=(height-spany*scale)/2
+        self.rounded(cr,ox-10,oy-10,spanx*scale+20,spany*scale+20,12)
+        cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
+        for lamp,kx,ky,kw,kh in caps:
             lid=lamp['id']; selected=lid in self.selected
-            x=12+(lamp['x']-min(xs))*sx
-            y=12+ys.index(lamp['y'])*sy
-            w=max(10,pitch*sx*lamp.get('width',1)-4); h=sy-5
+            x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
+            w=kw*scale; h=kh*scale
             self.rects.append((x,y,w,h,lid))
             rgb=self.colors.get(str(lid),'4f9c9c')
             if isinstance(rgb,str): rgb=tuple(int(rgb[i:i+2],16)/255 for i in (0,2,4))
             else: rgb=tuple(v/255 for v in rgb)
-            self.rounded(cr,x,y,w,h,5)
+            self.rounded(cr,x,y+2,w,h,4)
+            cr.set_source_rgba(0,0,0,.65); cr.fill()
+            self.rounded(cr,x,y,w,h,4)
+            cr.set_source_rgb(.12,.14,.16); cr.fill()
+            self.rounded(cr,x,y,w,h,4)
             cr.set_source_rgba(*rgb,.35 if selected else .13); cr.fill_preserve()
             cr.set_source_rgba(*rgb,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
-            text=lamp.get('label') or USAGES.get(lamp.get('key_usage'),str(lid))
+            text=lamp.get('label') or USAGES.get(lamp.get('key_usage'),'LED '+str(lid))
             layout=PangoCairo.create_layout(cr)
             layout.set_text(text,-1)
-            layout.set_font_description(Pango.FontDescription.from_string('Sans '+str(min(9,max(6,w/len(text))))))
+            layout.set_font_description(Pango.FontDescription.from_string('Sans '+str(min(9,max(5.5,w/max(1,len(text))*1.1)))))
             tw,th=layout.get_pixel_size()
             cr.set_source_rgba(.88,.93,.94,.95)
             cr.move_to(x+(w-tw)/2,y+(h-th)/2); PangoCairo.show_layout(cr,layout)

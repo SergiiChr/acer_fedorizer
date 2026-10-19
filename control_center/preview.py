@@ -4,21 +4,10 @@ import copy
 
 
 def layout():
-    rows=[['Esc']+[f'F{i}' for i in range(1,13)]+['Del'],
-          ['`','1','2','3','4','5','6','7','8','9','0','−','=','Back'],
-          ['Tab','Q','W','E','R','T','Y','U','I','O','P','[',']','\\'],
-          ['Caps','A','S','D','F','G','H','J','K','L',';','\'','Enter'],
-          ['Shift','Z','X','C','V','B','N','M',',','.','/','Shift','↑'],
-          ['Ctrl','Fn','Super','Alt','Space','Alt','Ctrl','←','↓','→']]
-    lamps=[]
-    usages={'A':4,'D':7,'S':22,'W':26,'Esc':41}
-    for row,keys in enumerate(rows):
-        x=0
-        for key in keys:
-            width=4 if key=='Space' else 1.45 if key in ('Tab','Caps','Shift','Enter','Back') else 1
-            lamps.append(dict(id=len(lamps),x=x*100,y=row*100,programmable=True,key_usage=usages.get(key,0),label=key,width=width))
-            x+=width
-    return dict(width=1600,height=600,lamps=lamps)
+    # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.
+    import json
+    from pathlib import Path
+    return json.loads(Path(__file__).with_name('keyboard-preview.json').read_text())
 
 
 STATE=dict(version='0.8.0',driver_version='Stock acer_wmi + USB HID',laptop_type='Predator PH16-72',
