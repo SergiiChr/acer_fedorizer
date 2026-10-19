@@ -74,3 +74,24 @@ Matching parameters must not be described as phase-locked or spatially continuou
 Wave. No guessed firmware command or periodic animation reset is used to claim
 synchronization. Software per-key animation would need physical WASD coverage
 and frame-rate validation before being offered as a replacement.
+
+
+## WASD Wave color handling
+
+A user reported dark MAG/WASD keys in Wave while other modes still worked.
+The live saved command had nonzero RGB and brightness, so those values alone
+do not establish the cause. Static inspection of the model-specific
+SunrexUSBKeyboard.dll (SHA-256
+`f02e26d1f831988ef7fdefee776502002fbfef1225e91f15fb73444d8304414f`)
+confirms that MAG_Wave's descriptor declares one mode-specific color, unlike
+the main keyboard Wave palette. The GUI now allows editing that color and
+sends it rather than silently substituting the disabled picker value.
+The existing validated 0x43 transfer sequence remains unchanged. A test of the
+existing reverse-direction Wave command at medium speed was accepted; visible
+animation still requires user confirmation. Command acceptance is not proof
+that a firmware effect is visible. No additional undocumented packet is used.
+
+Installation health checks are shared by the desktop System Settings refresh
+button and `setup.sh status`. They inspect files, systemd states, a bounded
+socket ping, the loaded module, and current-kernel DKMS status without sudo.
+They do not discover HID devices, change firmware, or load/unload modules.

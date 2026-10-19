@@ -11,6 +11,11 @@ TARGETS = {'keyboard':'Keyboard', 'wasd':'WASD keys', 'logo':'Lid logo',
            'lightbar':'Rear light bar', 'all':'All lights (sync)'}
 
 
+def uses_palette(target,mode):
+    # MAG/WASD Wave has a mode-specific RGB color in the PH16-72 controller.
+    return mode in (2,3) and not (target=='wasd' and mode==3)
+
+
 def rgb_hex(value):
     value = str(value).strip().removeprefix('#')
     if not re.fullmatch('[a-fA-F0-9]{6}', value):

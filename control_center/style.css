@@ -39,3 +39,5 @@ window { font-family: "Adwaita Sans", "Cantarell", sans-serif; }
 .credits-table { border-radius: 10px; background: alpha(@window_fg_color,.035); padding: 6px 12px; }
 .credits-table-header { font-weight: 700; padding: 8px 0; }
 .credits-table-cell { padding: 8px 0; border-top: 1px solid alpha(@window_fg_color,.08); }
+
+.status-indicator { margin-right: 4px; }

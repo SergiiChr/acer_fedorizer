@@ -56,6 +56,12 @@ class SetupTests(unittest.TestCase):
             path=self.root/file
             path.parent.mkdir(parents=True,exist_ok=True)
             path.write_text('pass\n' if path.suffix=='.py' else 'fixture\n')
+        # Share production checks, with only their fixed filesystem root redirected.
+        status=(ROOT/'control_center/installation.py').read_text()
+        status=status.replace("root=Path('/')", "root=Path("+repr(str(self.base))+")")
+        (self.root/'control_center/installation.py').write_text(status)
+        shutil.copyfile(ROOT/'control_center/client.py',self.root/'control_center/client.py')
+
 
     def tearDown(self):
         self.temp.cleanup()

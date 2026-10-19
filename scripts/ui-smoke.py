@@ -57,6 +57,12 @@ def checks():
         window.credits_window.close()
         window.profile_tiles.set_selected(window.profile_choices.index('balanced'))
         window.fan_mode.choose(0)
+        window.receive_installation_status(None,'Timed out')
+        assert 'failed' in window.status_group.get_description()
+        assert all('Not checked' in row.get_subtitle() for row,_ in window.status_rows.values())
+        window.banner.emit('button-clicked')
+        assert window.stack.get_visible_child_name()=='diagnostics'
+        assert window.status_pending and not window.status_button.get_sensitive()
         window.nav.select_row(window.nav_rows['lighting'])
         window.color_entry.set_text('#FF2300')
         window.brightness.set_value(47)
@@ -80,6 +86,12 @@ def checks():
         window.editor.paint()
         assert len(window.editor.colors)==len(window.editor.canvas.selected)
         window.editor.close()
+        window.target_combo.set_selected(window.targets.index('wasd'))
+        window.effect_combo.set_selected(window.effect_ids.index(3))
+        assert window.color_entry.get_sensitive(),'WASD Wave color is incorrectly disabled'
+        window.color_entry.set_text('#EE4400'); window.capture_draft()
+        assert window.drafts['wasd'].params('wasd')['color']=='ee4400'
+        window.target_combo.set_selected(window.targets.index('keyboard'))
         window.effect_combo.set_selected(window.effect_ids.index(0))
         window.apply_lighting()
         assert window.pending,'Explicit apply was not scheduled'
@@ -94,12 +106,15 @@ def checks():
 def verify_apply():
     try:
         window=app.window
+        assert not window.status_pending and window.status_button.get_sensitive()
+        assert 'All checks passed' in window.status_group.get_description()
+        assert all(indicator.get_icon_name()=='checkbox-checked-symbolic' for _,indicator in window.status_rows.values())
         assert not window.pending,'Apply did not finish'
         commands=[params for command,params in window.client.commands if command=='set_lighting']
         assert len(commands)==1 and commands[0]['color']=='ff2300'
         assert commands[0]['brightness']==47
         assert window.light_group.get_sensitive(),'Editor did not recover after apply'
-        print('PASS: rendered credits and clickable links, profile names and hardware mappings, exclusive mode tiles, fan sensitivity, real GTK pages, independent drafts, refresh preservation, palette controls, keyboard editor, no startup writes, and explicit async apply',flush=True)
+        print('PASS: async installation status, target-specific Wave color, rendered credits and clickable links, profile names and hardware mappings, exclusive mode tiles, fan sensitivity, real GTK pages, independent drafts, refresh preservation, palette controls, keyboard editor, no startup writes, and explicit async apply',flush=True)
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()

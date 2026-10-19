@@ -54,7 +54,9 @@ the distribution's DKMS signing key before the rear lightbar module loads.
   charge/calibration controls actually exposed by the driver.
 - **Display:** persistent Native SDR color management on a supported active
   built-in Mutter panel; preserves monitor configuration and is disabled with HDR.
-- **System Settings:** detected capabilities, connection details, and licenses/credits.
+- **System Settings:** refresh installation status to check app files, service/socket,
+  and lightbar driver. Read-only checks need no sudo and show pass/fail/unknown
+  results. Also shows capabilities, connection details, and licenses/credits.
 
 The lightweight Python hardware service stays running after the window closes,
 waiting for commands and the Predator button. It does not run dashboard or GPU

@@ -38,3 +38,13 @@ def sample(gpu=False):
                 cores=[2.1,2.3,2.2,2.5,2.1,2.4,2.2,2.3]+[1.3+(i%4)/10 for i in range(16)],
                 gpu=dict(temperature=42,usage=3,memory_used=486,memory_total=12282,power=5.2,core=210,memory_clock=405) if gpu else None,
                 battery=dict(capacity=78,status='Charging',health=97,hours=0.72,cycles=126,manufacturer='SMP',model='AP21D8M'))
+
+
+def installation_status():
+    from .installation import CHECKS
+    return dict(model='Predator PH16-72',kernel='7.2.11-200.fc44.x86_64',installed=True,healthy=True,
+                checks=[dict(key=key,title=title,ok=True,
+                             detail='Running.' if key=='running' else 'Responding.' if key=='ping' else
+                             'Enabled.' if key=='enabled' else 'Loaded.' if key=='module' else
+                             'Installed for the running kernel.' if key=='dkms' else 'Available.' if key=='socket' else 'Installed.')
+                        for key,title in CHECKS])

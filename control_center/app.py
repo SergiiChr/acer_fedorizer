@@ -9,10 +9,10 @@ gi.require_version('Gtk','4.0')
 gi.require_version('Adw','1')
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 from .client import ControlClient
-from .models import LightingDraft, EFFECTS, PROFILES, TARGETS, full_key_map, rgb_hex
+from .models import LightingDraft, EFFECTS, PROFILES, TARGETS, full_key_map, rgb_hex, uses_palette
 from .telemetry import Telemetry
 from .widgets import label, box, HistoryChart, KeyboardCanvas, ModeTiles, color_rgba, hex_rgba
-from . import preview, display
+from . import preview, display, installation
 from .markdown_view import markdown_view
 
 PAGES=[('overview','Dashboard','view-grid-symbolic','CPU, GPU, memory, and power status'),
@@ -54,13 +54,14 @@ class MainWindow(Adw.ApplicationWindow):
         self.client=preview.PreviewClient() if demo else ControlClient()
         self.telemetry=Telemetry(); self.state={}; self.connected=False; self.updating=False
         self.drafts={}; self.current_target=None; self.lighting_loading=False; self.layout=None
-        self.gpu_enabled=False; self.manual_dirty=False
+        self.gpu_enabled=False; self.manual_dirty=False; self.status_pending=False
         self.build()
         self.connect('close-request',self.on_close)
         if demo:
             self.receive_state(self.client.command('get_all_settings'),None)
             self.receive_metrics(preview.sample())
             self.set_layout(preview.layout())
+            self.receive_installation_status(preview.installation_status(),None)
             self.receive_display(dict(available=True,enabled=False,connector='eDP-1',mode='default',message='Built-in display · Native SDR supported'))
             for i in range(60):
                 self.cpu_chart.sample(25+8*math.sin(i*.18)+3*math.sin(i*.7))
@@ -114,7 +115,8 @@ class MainWindow(Adw.ApplicationWindow):
         top.pack_end(self.header_apply)
         content.add_top_bar(top)
         column=box(0)
-        self.banner=Adw.Banner(title='Hardware service unavailable. Run ./setup.sh status to check your installation.')
+        self.banner=Adw.Banner(title='Hardware service unavailable.',button_label='Check status')
+        self.banner.connect('button-clicked',self.open_installation_status)
         column.append(self.banner)
         self.stack=Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,transition_duration=140,vexpand=True)
         column.append(self.stack); content.set_content(column)
@@ -307,6 +309,22 @@ class MainWindow(Adw.ApplicationWindow):
 
     def build_diagnostics(self):
         page=self.pages['diagnostics']
+        self.status_group=Adw.PreferencesGroup(title='Installation status',description='Not checked. Refresh to check the installed files, service, and driver.')
+        actions=box(8,True)
+        self.status_spinner=Gtk.Spinner(valign=Gtk.Align.CENTER)
+        actions.append(self.status_spinner)
+        self.status_button=button('Refresh status',self.refresh_installation)
+        action_content=box(7,True); action_content.append(Gtk.Image.new_from_icon_name('view-refresh-symbolic'))
+        action_content.append(label('Refresh status')); self.status_button.set_child(action_content)
+        actions.append(self.status_button); self.status_group.set_header_suffix(actions)
+        self.status_rows={}
+        for key,title in installation.CHECKS:
+            row=Adw.ActionRow(title=title,subtitle='Not checked',use_markup=False)
+            row.set_subtitle_lines(3)
+            indicator=Gtk.Image.new_from_icon_name('checkbox-symbolic'); indicator.set_pixel_size(20)
+            indicator.add_css_class('status-indicator'); indicator.add_css_class('dim-label')
+            row.add_prefix(indicator); self.status_group.add(row); self.status_rows[key]=(row,indicator)
+        page.append(self.status_group)
         group=Adw.PreferencesGroup(title='Hardware connection')
         self.system_labels={}
         for key,title in [('model','Laptop'),('driver','Control interface'),('version','Service version'),('socket','Connection')]:
@@ -318,7 +336,42 @@ class MainWindow(Adw.ApplicationWindow):
         group=Adw.PreferencesGroup(title='Acer Fedorizer',description='A native Linux control center built with GTK4 and libadwaita. The user interface runs without administrator privileges.')
         row=Adw.ActionRow(title='Licenses and credits',subtitle='Application GPLv3 · separate kernel bridge GPLv2')
         row.add_suffix(button('View notices',lambda *_: self.show_credits(),'flat')); group.add(row); page.append(group)
-        page.append(label('For installation health, run: ./setup.sh status\nFor service logs: journalctl -u fedorizer-daemon.service -b','dim-label'))
+
+
+    def open_installation_status(self,*_):
+        self.nav.select_row(self.nav_rows['diagnostics'])
+        self.refresh_installation()
+
+    def refresh_installation(self,*_):
+        if self.status_pending: return
+        self.status_pending=True
+        self.status_button.set_sensitive(False); self.status_spinner.start()
+        self.status_group.set_description('Checking installation…')
+        self.async_call(preview.installation_status if self.demo else installation.collect_status,self.receive_installation_status)
+
+    def receive_installation_status(self,report,error):
+        self.status_pending=False
+        self.status_button.set_sensitive(True); self.status_spinner.stop()
+        if error:
+            self.status_group.set_description('Status check failed: '+error)
+            for row,indicator in self.status_rows.values():
+                row.set_subtitle('Not checked · status could not be refreshed')
+                indicator.set_from_icon_name('checkbox-mixed-symbolic')
+                for css in ('success','error'): indicator.remove_css_class(css)
+                indicator.add_css_class('dim-label')
+            return
+        visible={check['key'] for check in report['checks']}
+        for key,(row,_) in self.status_rows.items(): row.set_visible(key in visible)
+        for check in report['checks']:
+            row,indicator=self.status_rows[check['key']]
+            ok=check['ok']
+            indicator.set_from_icon_name('checkbox-checked-symbolic' if ok is True else 'checkbox-symbolic' if ok is False else 'checkbox-mixed-symbolic')
+            for css in ('success','error','dim-label'): indicator.remove_css_class(css)
+            indicator.add_css_class('success' if ok is True else 'error' if ok is False else 'dim-label')
+            row.set_subtitle(('OK' if ok is True else 'Failed' if ok is False else 'Info')+' · '+check['detail'])
+        summary='All checks passed' if report['healthy'] else 'Some checks need attention'
+        timestamp='10:30:00' if self.demo else GLib.DateTime.new_now_local().format('%H:%M:%S')
+        self.status_group.set_description(summary+' · Checked '+timestamp+(' · Preview data' if self.demo else ''))
 
     def async_call(self, function, callback):
         def work():
@@ -491,7 +544,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.current_target and self.effect_ids:
             index=self.effect_combo.get_selected()
             mode=self.effect_ids[min(index,len(self.effect_ids)-1)]
-            color=hex_rgba(self.color_button.get_rgba()) if mode in (2,3) else self.color_entry.get_text()
+            color=hex_rgba(self.color_button.get_rgba()) if uses_palette(self.current_target,mode) else self.color_entry.get_text()
             self.drafts[self.current_target]=LightingDraft(mode,color,round(self.brightness.get_value()),round(self.speed.get_value()),self.direction.get_selected()+1,self.link_wasd.get_active())
     def target_changed(self,*_):
         if self.lighting_loading: return
@@ -520,11 +573,12 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.effect_ids: return
         index=self.effect_combo.get_selected()
         if index>=len(self.effect_ids): return
-        mode=self.effect_ids[index]; palette=mode in (2,3)
+        mode=self.effect_ids[index]; palette=uses_palette(self.current_target,mode)
         self.color_entry.set_sensitive(not palette); self.color_button.set_sensitive(not palette)
         self.direction.set_sensitive(mode==3 and self.current_target!='logo')
         self.speed.set_sensitive(mode!=0 and self.current_target!='logo')
-        self.effect_note.set_text('Wave uses a firmware palette. Linked WASD and keyboard animations run independently.' if mode==3 else
+        self.effect_note.set_text('WASD Wave uses the selected color and runs independently from keyboard Wave.' if mode==3 and self.current_target=='wasd' else
+            'Wave uses a firmware palette. Linked WASD and keyboard animations run independently.' if mode==3 else
             'This effect uses its firmware color palette.' if palette else
             'All lights share settings; their animation timing can differ.' if self.current_target=='all' else 'Last successful command is saved; hardware effect readback is unavailable.')
     def color_entered(self,*_):
