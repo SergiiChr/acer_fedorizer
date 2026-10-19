@@ -20,21 +20,23 @@ They appear only when supported stock kernel attributes exist. This firmware doe
 
 **Where are logs and settings?**
 Use `journalctl -u damx-daemon.service -b` for service logs. Successful lighting
-commands are saved in `/var/lib/damx/lighting.json`. Installation keeps the
-previous GUI and daemon in `/opt/damx.previous`.
+commands are saved in `/var/lib/damx/lighting.json`. Reinstalling with `./setup.sh install` resets this state after asking for
+confirmation.
 
-**Why did DKMS installation fail?**
-Install headers matching `uname -r`; after a kernel update, reboot into the
-matching kernel and rerun `./setup.sh`. Secure Boot may require enrolling the
-DKMS signing key according to your distribution's instructions. Use
-`./setup.sh --without-lightbar` to install core controls independently.
+**What should I do if installation fails?**
+Run `./setup.sh status`. It checks the application files, service, socket reply,
+and rear lightbar driver for your running kernel and shows repair instructions.
+Install automatically includes matching kernel headers and all dependencies.
+After a kernel update, reboot before reinstalling so the running kernel and
+available headers match. Secure Boot can require enrolling the distribution's
+DKMS signing key; a module load failure is reported instead of claiming success.
 
-**What does uninstall retain?**
-`./setup.sh --uninstall` removes the service and desktop launcher, retaining
-`/opt/damx`, `/opt/damx.previous`, `/var/lib/damx`, and the socket access group.
-The optional kernel module is separate: remove it using
-`sudo dkms remove damx-lightbar/0.2.0 --all` and
-`sudo modprobe -r damx_lightbar`.
+**What does uninstall remove?**
+`./setup.sh uninstall` removes the application, service, desktop launcher/icon,
+control socket, lighting state, old installation backups, socket-access group,
+and every DAMX lightbar DKMS version and its installed module/source files.
+Repeated uninstall is safe. Shared OS packages and this downloaded folder stay.
+It does not revert desktop color-management choices already saved in Mutter.
 
 **Can keyboard and WASD Wave run as one synchronized wave?**
 The link option sends matching effect, speed, brightness, and direction to the

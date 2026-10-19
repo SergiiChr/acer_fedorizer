@@ -18,3 +18,35 @@ native-lightbar/*.mod*
 native-lightbar/.*.cmd
 native-lightbar/Module.symvers
 native-lightbar/modules.order
+
+# Additional .NET output, downloaded SDK/cache files, and test reports
+artifacts/
+.dotnet/
+.nuget/
+.vs/
+TestResults/
+coverage/
+*.trx
+*.binlog
+*.nupkg
+*.snupkg
+*.dll
+*.exe
+*.pdb
+*.so
+*.so.*
+*.a
+*.rpm
+*.deb
+*.AppImage
+# Python tool caches and local environments
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+# Release archives and additional native compiler output
+*.tar.gz
+*.tgz
+*.zip
+*.obj
+native-lightbar/.tmp_versions/

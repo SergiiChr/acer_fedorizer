@@ -2,9 +2,13 @@
 
 Use Python 3 and the .NET 8 SDK on Linux x86_64. The Python daemon has no pip
 dependencies. Optional GNOME display integration uses distribution PyGObject.
-Run `./setup.sh --build` to install build dependencies and publish, or
-`./setup.sh --build --no-deps` when prerequisites are already present.
-`DAMX_DOTNET` selects an SDK executable outside PATH. Build as your regular user.
+The public setup commands are `install`, `uninstall`, `status`, and `help`.
+For development/CI, use `scripts/local-setup.sh --build` with prerequisites
+already installed. This internal build helper does not install or remove the app.
+`DAMX_DOTNET` selects an SDK executable outside PATH. Build as your regular user. The build helper automatically removes intermediate
+`bin`/`obj` directories and caches after success or failure, retaining
+`publish/native` for packaging. Public setup removes that generated GUI after
+source installation; binary distributions retain their reusable GUI payload.
 
 ## Checks
 
@@ -12,7 +16,7 @@ Run `./setup.sh --build` to install build dependencies and publish, or
 bash -n setup.sh scripts/*.sh
 python3 -m unittest discover -s tests -v
 dotnet run --project tests/client-tests/ClientTests.csproj -c Release
-./setup.sh --build --no-deps
+scripts/local-setup.sh --build
 scripts/package.sh
 ```
 

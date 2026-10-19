@@ -33,6 +33,7 @@ Generated from the restored NuGet package metadata. Versioned native-package not
 | MessageBox.Avalonia/12.0.0 | MIT | Shared upstream texts in LICENSES |
 | MicroCom.Runtime/0.11.4 | MIT | Shared upstream texts in LICENSES |
 | Microsoft.AspNetCore.App.Runtime.linux-x64/8.0.31 | MIT | Microsoft.AspNetCore.App.Runtime.linux-x64-8.0.31-THIRD-PARTY-NOTICES.TXT |
+| Microsoft.NETCore.App.Host.linux-x64/8.0.31 | MIT | Microsoft.NETCore.App.Host.linux-x64-8.0.31-LICENSE.TXT, Microsoft.NETCore.App.Host.linux-x64-8.0.31-THIRD-PARTY-NOTICES.TXT |
 | Microsoft.NETCore.App.Runtime.linux-x64/8.0.31 | MIT | Microsoft.NETCore.App.Runtime.linux-x64-8.0.31-LICENSE.TXT, Microsoft.NETCore.App.Runtime.linux-x64-8.0.31-THIRD-PARTY-NOTICES.TXT |
 | SkiaSharp.HarfBuzz/2.88.9 | MIT | SkiaSharp.HarfBuzz-2.88.9-LICENSE.txt |
 | SkiaSharp.NativeAssets.Linux/3.119.4-preview.1.1 | MIT | SkiaSharp.NativeAssets.Linux-3.119.4-preview.1.1-THIRD-PARTY-NOTICES.txt, SkiaSharp.NativeAssets.Linux-3.119.4-preview.1.1-LICENSE.txt |

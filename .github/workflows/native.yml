@@ -23,7 +23,7 @@ jobs:
       - name: Test socket client and lighting drafts
         run: dotnet run --project tests/client-tests/ClientTests.csproj -c Release
       - name: Build GUI
-        run: ./setup.sh --build --no-deps
+        run: scripts/local-setup.sh --build
       - name: Package native components
         run: scripts/package.sh
       - uses: actions/upload-artifact@v4
