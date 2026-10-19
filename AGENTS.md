@@ -20,7 +20,8 @@ do not add guessed firmware commands. Retain automatic-fan recovery on failure
 and persist lighting only after successful commands. Distinguish acceptance from
 physical results. Keep GPU monitoring opt-in and session/GUI actions unprivileged.
 Preserve established feature/profile names and mappings; use neutral functional UI text.
-Performance profiles and fan modes use large icon tiles.
+Performance profiles and fan modes use large icon tiles. Render credits programmatically
+from `NOTICE.md`; do not add duplicate credits content or generated HTML files.
 No import-time hardware access. Never call GTK from a worker thread. Reading or
 refreshing state must not write controls or discard per-device editing drafts.
 

@@ -39,6 +39,22 @@ def checks():
             assert sum(b.get_active() for b in window.fan_mode.buttons)==1
             assert window.cpu_slider.get_sensitive()==(index==2)
             assert window.gpu_slider.get_sensitive()==(index==2)
+        window.show_credits()
+        def descendants(widget):
+            yield widget
+            child=widget.get_first_child()
+            while child:
+                yield from descendants(child)
+                child=child.get_next_sibling()
+        from gi.repository import Gtk
+        credits=[widget for widget in descendants(window.credits_window) if isinstance(widget,Gtk.Label)]
+        rendered='\n'.join(widget.get_text() for widget in credits)
+        assert 'Licenses, attribution, and distribution' in rendered
+        assert 'Div Acer Manager Max — PXDiv and its contributors.' in rendered
+        assert 'GNU LGPL 2.1 or later;' in rendered,'License table missing'
+        assert '**' not in rendered and '[OpenRGB issue' not in rendered,'Raw Markdown visible'
+        assert any('<a href=' in widget.get_label() for widget in credits),'Links not rendered'
+        window.credits_window.close()
         window.profile_tiles.set_selected(window.profile_choices.index('balanced'))
         window.fan_mode.choose(0)
         window.nav.select_row(window.nav_rows['lighting'])
@@ -83,7 +99,7 @@ def verify_apply():
         assert len(commands)==1 and commands[0]['color']=='ff2300'
         assert commands[0]['brightness']==47
         assert window.light_group.get_sensitive(),'Editor did not recover after apply'
-        print('PASS: profile names and hardware mappings, exclusive mode tiles, fan sensitivity, real GTK pages, independent drafts, refresh preservation, palette controls, keyboard editor, no startup writes, and explicit async apply',flush=True)
+        print('PASS: rendered credits and clickable links, profile names and hardware mappings, exclusive mode tiles, fan sensitivity, real GTK pages, independent drafts, refresh preservation, palette controls, keyboard editor, no startup writes, and explicit async apply',flush=True)
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()

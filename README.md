@@ -70,7 +70,7 @@ data, not claims of live hardware measurements.
 
 [Power & Performance](docs/screenshots/performance.png) · [Battery](docs/screenshots/battery.png) ·
 [Display](docs/screenshots/display.png) · [System Settings](docs/screenshots/diagnostics.png) ·
-[Per-key editor](docs/screenshots/keyboard.png)
+[Per-key editor](docs/screenshots/keyboard.png) · [Credits](docs/screenshots/credits.png)
 
 ```sh
 ./run.sh --preview

@@ -9,7 +9,8 @@ not an offline test. Do not use diagnostic exercise mode for routine checks.
 ## Source map
 
 - `control_center/app.py`: libadwaita windows and async actions; no root operations.
-- `control_center/widgets.py`: charts and geometry-based keyboard preview.
+- `control_center/widgets.py`: mode tiles, charts, and geometry-based keyboard preview.
+- `control_center/markdown_view.py`: escaped Markdown rendering for the single-source `NOTICE.md` credits.
 - `control_center/client.py`: bounded, serialized JSON socket client.
 - `control_center/models.py`: independent lighting drafts and color validation.
 - `control_center/telemetry.py`: read-only sysfs/proc sampling; NVIDIA opt-in only.
@@ -40,7 +41,7 @@ UI checks require a graphical display; CI uses Xvfb and a private D-Bus session.
 Tests use temporary sysfs trees, fake system/package commands, and local sockets.
 They do not install the app or change firmware. UI smoke tests check real widget
 navigation, profile-name/hardware mappings, single-selection mode tiles, fan-slider sensitivity, draft independence, refresh preservation, palette restrictions, and
-no startup writes. Preview screenshots are actual GTK renders, visibly labelled.
+no startup writes, and rendered credits/links. Preview screenshots are actual GTK renders, visibly labelled.
 
 No polling may overwrite editing drafts or apply a setting automatically. Worker
 threads must not touch GTK. Stop timers on window closure, keep GPU sampling

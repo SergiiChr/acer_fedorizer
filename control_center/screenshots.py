@@ -29,21 +29,22 @@ def invalidate(widget):
 def capture_pages(app,directory):
     directory=Path(directory).resolve()
     directory.mkdir(parents=True,exist_ok=True)
-    names=[key for key,*_ in PAGES]+['keyboard']
+    names=[key for key,*_ in PAGES]+['keyboard','credits']
     def next_page(index=0):
         if index>=len(names):
             app.window.close(); app.quit(); return False
         name=names[index]
         app.window.set_default_size(1160,1120 if name=='lighting' else 900)
         if name=='keyboard': app.window.open_editor()
+        elif name=='credits': app.window.show_credits()
         else: app.window.nav.select_row(app.window.nav_rows[name])
-        invalidate(app.window.editor if name=='keyboard' else app.window)
+        target=app.window.editor if name=='keyboard' else app.window.credits_window if name=='credits' else app.window
+        invalidate(target)
         def capture():
             try:
-                target=app.window.editor if name=='keyboard' else app.window
                 save_window(target,directory/(name+'.png'))
                 print(directory/(name+'.png'),flush=True)
-                if name=='keyboard': target.close()
+                if name in ('keyboard','credits'): target.close()
             except Exception as error:
                 app.capture_error=str(error)
                 print('Screenshot failed:',error,flush=True)

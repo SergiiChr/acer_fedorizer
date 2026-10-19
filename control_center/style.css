@@ -18,7 +18,24 @@ window { font-family: "Adwaita Sans", "Cantarell", sans-serif; }
 .preview-badge { color: #e5b567; background: alpha(#e5b567,.12); padding: 4px 10px; border-radius: 16px; font-size: 11px; }
 .sidebar-footer { padding: 16px 24px; font-size: 11px; color: @dim_label_color; }
 
-.mode-tile { min-width: 90px; min-height: 100px; padding: 16px 10px; border-radius: 12px; border: 2px solid transparent; background: @card_bg_color; }
-.mode-tile:checked { background: alpha(@accent_color, .16); border-color: @accent_color; color: @accent_color; }
-.mode-tile:hover { background: alpha(@accent_color, .09); }
+/* Keep primary and secondary actions at the same size, including row suffixes. */
+.control-button { min-height: 24px; padding: 6px 14px; border-radius: 9px; font-size: 14px; font-weight: 600; }
+.mode-selector { padding: 6px; }
+.mode-selector > flowboxchild { padding: 4px; }
+.mode-tile { min-width: 88px; min-height: 96px; padding: 14px 10px; border-radius: 12px;
+             border: 1px solid alpha(@window_fg_color,.10); background: alpha(@window_fg_color,.035); box-shadow: none; }
+.mode-tile:hover { background: alpha(@window_fg_color,.07); border-color: alpha(@window_fg_color,.18); }
+.mode-tile:checked { background: alpha(@accent_color,.12); border-color: alpha(@accent_color,.75); color: @accent_color; }
+.mode-tile:checked:hover { background: alpha(@accent_color,.18); border-color: @accent_color; }
 .mode-tile:focus-visible { outline: 2px solid @accent_color; outline-offset: 2px; }
+.mode-icon { border-radius: 14px; background: alpha(@window_fg_color,.055); }
+.mode-tile:checked .mode-icon { background: alpha(@accent_color,.12); }
+.mode-caption { font-size: 13px; font-weight: 600; }
+.mode-check { margin: 0; }
+.credits-content { margin: 24px 30px 32px; font-size: 14px; }
+.credits-title { font-size: 25px; font-weight: 700; margin-bottom: 8px; }
+.credits-heading { font-size: 18px; font-weight: 700; margin-top: 16px; margin-bottom: 2px; }
+.credits-bullet { margin-top: 1px; }
+.credits-table { border-radius: 10px; background: alpha(@window_fg_color,.035); padding: 6px 12px; }
+.credits-table-header { font-weight: 700; padding: 8px 0; }
+.credits-table-cell { padding: 8px 0; border-top: 1px solid alpha(@window_fg_color,.08); }

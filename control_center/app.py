@@ -13,6 +13,7 @@ from .models import LightingDraft, EFFECTS, PROFILES, TARGETS, full_key_map, rgb
 from .telemetry import Telemetry
 from .widgets import label, box, HistoryChart, KeyboardCanvas, ModeTiles, color_rgba, hex_rgba
 from . import preview, display
+from .markdown_view import markdown_view
 
 PAGES=[('overview','Dashboard','view-grid-symbolic','CPU, GPU, memory, and power status'),
        ('performance','Power & Performance','power-profile-performance-symbolic','Performance profiles and fan speed control'),
@@ -26,8 +27,9 @@ PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-v
                'balanced':'power-profile-balanced-symbolic','balanced-performance':'power-profile-performance-symbolic',
                'performance':'weather-storm-symbolic'}
 
-def button(text, callback, css='suggested-action'):
+def button(text, callback, css=''):
     widget=Gtk.Button(label=text,valign=Gtk.Align.CENTER)
+    widget.add_css_class('control-button')
     if css: widget.add_css_class(css)
     widget.connect('clicked',callback)
     return widget
@@ -106,7 +108,7 @@ class MainWindow(Adw.ApplicationWindow):
         menu=Gio.Menu()
         menu.append('Licenses and credits','app.credits')
         menu_button=Gtk.MenuButton(icon_name='open-menu-symbolic',menu_model=menu)
-        self.header_apply=button('Apply lighting',self.apply_lighting)
+        self.header_apply=button('Apply lighting',self.apply_lighting,'suggested-action')
         self.header_apply.set_visible(False)
         top.pack_end(menu_button)
         top.pack_end(self.header_apply)
@@ -144,7 +146,7 @@ class MainWindow(Adw.ApplicationWindow):
         page=self.pages['overview']
         hero=box(12); hero.add_css_class('hero')
         line=box(12,True); heading=label('CURRENT PERFORMANCE PROFILE','eyebrow'); heading.set_hexpand(True); line.append(heading)
-        self.ac_label=label('AC power','status-pill'); self.ac_label.set_hexpand(False); self.ac_label.set_halign(Gtk.Align.END); line.append(self.ac_label)
+        self.ac_label=label('AC power','status-pill'); self.ac_label.set_valign(Gtk.Align.CENTER); self.ac_label.set_hexpand(False); self.ac_label.set_halign(Gtk.Align.END); line.append(self.ac_label)
         hero.append(line)
         self.profile_hero=label('Balanced','hero-value'); hero.append(self.profile_hero)
         hero.append(label('Current profile reported by the platform driver.','dim-label'))
@@ -182,8 +184,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.profile_choices=[]
         self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles))
         row=Adw.ActionRow(title='Current profile',subtitle='Changes made by the hardware button appear automatically.')
-        self.current_profile=label('Unavailable','status-pill'); row.add_suffix(self.current_profile)
-        row.add_suffix(button('Apply profile',self.apply_profile))
+        self.current_profile=row
+        row.set_subtitle('Unavailable')
+        row.add_suffix(button('Apply profile',self.apply_profile,'suggested-action'))
         self.profile_group.add(row); page.append(self.profile_group)
         self.fan_group=Adw.PreferencesGroup(title='Fan Speed Control',description='Manual settings are drafts until applied. Failed writes restore automatic cooling.')
         self.fan_mode=ModeTiles([('Auto','view-refresh-symbolic'),('Max','power-profile-performance-symbolic'),('Manual','preferences-system-symbolic')],changed=self.update_fan_sensitivity)
@@ -192,7 +195,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
         row=Adw.ActionRow(title='Current cooling',subtitle='Reading firmware state…')
         self.fan_current=row
-        row.add_suffix(button('Apply fan settings',self.apply_fans)); self.fan_group.add(row)
+        row.add_suffix(button('Apply fan settings',self.apply_fans,'suggested-action')); self.fan_group.add(row)
         page.append(self.fan_group)
         self.extras=Adw.PreferencesGroup(title='Device options',description='Only controls exposed by the stock driver appear here.')
         self.extra_switches={}
@@ -246,7 +249,7 @@ class MainWindow(Adw.ApplicationWindow):
         bottom=box(12,True)
         self.effect_note=label('Changes are applied only when you press Apply.','dim-label'); self.effect_note.set_hexpand(True)
         bottom.append(self.effect_note)
-        self.light_apply=button('Apply lighting',self.apply_lighting); bottom.append(self.light_apply); page.append(bottom)
+        self.light_apply=button('Apply lighting',self.apply_lighting,'suggested-action'); bottom.append(self.light_apply); page.append(bottom)
         zones=Adw.PreferencesGroup()
         self.zones=Adw.ExpanderRow(title='Zone Color Control',subtitle='Set a static color for each of the four keyboard zones.')
         self.zone_buttons=[]
@@ -255,7 +258,7 @@ class MainWindow(Adw.ApplicationWindow):
             picker=Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(),rgba=color_rgba(color),valign=Gtk.Align.CENTER)
             row.add_suffix(picker); self.zones.add_row(row); self.zone_buttons.append(picker)
         row=Adw.ActionRow(title='Apply four zones')
-        row.add_suffix(button('Apply zones',self.apply_zones)); self.zones.add_row(row)
+        row.add_suffix(button('Apply zones',self.apply_zones,'suggested-action')); self.zones.add_row(row)
         zones.add(self.zones); page.append(zones)
 
     def scale_row(self,title,minimum,maximum,value):
@@ -373,7 +376,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self.profile_choices=choices
                 self.profile_tiles.set_choices([(PROFILES.get(v,v),PROFILE_ICONS.get(v,'preferences-system-symbolic')) for v in choices])
                 if current in choices: self.profile_tiles.set_selected(choices.index(current))
-            self.current_profile.set_text(PROFILES.get(current,current or 'Unavailable'))
+            self.current_profile.set_subtitle(PROFILES.get(current,current or 'Unavailable'))
             self.profile_hero.set_text(PROFILES.get(current,current or 'Monitoring'))
             ac=state.get('ac_online')
             self.ac_label.set_text('AC power' if ac is True else 'Battery power' if ac is False else 'Power source unknown')
@@ -595,9 +598,13 @@ class MainWindow(Adw.ApplicationWindow):
         toolbar=Adw.ToolbarView(); toolbar.add_top_bar(Adw.HeaderBar())
         path=Path(__file__).resolve().parents[1]/'NOTICE.md'
         text=path.read_text() if path.exists() else 'License notices are missing. Reinstall from a complete source package.'
-        view=Gtk.TextView(editable=False,cursor_visible=False,wrap_mode=Gtk.WrapMode.WORD_CHAR,left_margin=24,right_margin=24,top_margin=24,bottom_margin=24)
-        view.get_buffer().set_text(text)
-        scroll=Gtk.ScrolledWindow(child=view); toolbar.set_content(scroll); window.set_content(toolbar); window.present()
+        content=markdown_view(text)
+        clamp=Adw.Clamp(maximum_size=860,tightening_threshold=700,child=content)
+        scroll=Gtk.ScrolledWindow(child=clamp,hscrollbar_policy=Gtk.PolicyType.NEVER)
+        toolbar.set_content(scroll); window.set_content(toolbar)
+        self.credits_window=window
+        content.set_focusable(True); window.set_focus(content); window.present()
+
     def on_close(self,*_):
         self.closed=True
         if hasattr(self,'timer'): GLib.source_remove(self.timer)
@@ -624,7 +631,7 @@ class KeyEditor(Adw.Window):
         controls.append(button('Select all',lambda *_:self.select_all(),'flat'))
         controls.append(button('Clear selection',lambda *_:self.clear_selection(),'flat'))
         self.selection=label('No keys selected','dim-label'); self.selection.set_hexpand(True); controls.append(self.selection)
-        self.picker=Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(),rgba=color_rgba('dfb678'))
+        self.picker=Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(),rgba=color_rgba('dfb678'),valign=Gtk.Align.CENTER)
         controls.append(self.picker)
         controls.append(button('Set selected color',self.paint))
         content.append(controls)
@@ -633,7 +640,7 @@ class KeyEditor(Adw.Window):
         self.brightness=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
         self.brightness.set_value(80); self.brightness.set_draw_value(True); self.brightness.set_hexpand(True)
         row.append(self.brightness)
-        self.apply=button('Apply keyboard colors',self.submit); row.append(self.apply); content.append(row)
+        self.apply=button('Apply keyboard colors',self.submit,'suggested-action'); row.append(self.apply); content.append(row)
         self.result=label('The current preview is an editing draft, not a hardware readback.','dim-label'); content.append(self.result)
         toolbar.set_content(content); self.set_content(toolbar)
     def select_all(self):

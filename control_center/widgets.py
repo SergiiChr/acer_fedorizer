@@ -9,6 +9,8 @@ from .keyboard import keycaps
 def label(text='', css=None, xalign=0):
     widget=Gtk.Label(label=text,xalign=xalign,wrap=True)
     if css: widget.add_css_class(css)
+    if css in ('preview-badge','status-pill'):
+        widget.set_wrap(False); widget.set_valign(Gtk.Align.CENTER)
     return widget
 
 
@@ -32,22 +34,30 @@ class ModeTiles(Gtk.FlowBox):
         super().__init__(selection_mode=Gtk.SelectionMode.NONE,homogeneous=True,
                          min_children_per_line=1,max_children_per_line=5,
                          row_spacing=10,column_spacing=10)
-        self.buttons=[]; self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
+        self.add_css_class('mode-selector')
+        self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
         self.set_choices(choices)
 
     def set_choices(self, choices):
         while self.get_first_child(): self.remove(self.get_first_child())
-        self.buttons=[]; self.selected=Gtk.INVALID_LIST_POSITION
+        self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION
         for index,(title,icon) in enumerate(choices):
             tile=Gtk.ToggleButton(hexpand=True)
             tile.add_css_class('mode-tile')
             tile.set_tooltip_text(title)
             tile.update_property([Gtk.AccessibleProperty.LABEL],[title])
-            content=box(10)
-            image=Gtk.Image.new_from_icon_name(icon); image.set_pixel_size(40)
-            content.append(image)
-            content.append(label(title,xalign=.5))
-            tile.set_child(content)
+            content=box(10); content.set_halign(Gtk.Align.CENTER); content.set_valign(Gtk.Align.CENTER)
+            well=box(); well.add_css_class('mode-icon'); well.set_halign(Gtk.Align.CENTER)
+            well.set_size_request(48,48)
+            image=Gtk.Image.new_from_icon_name(icon); image.set_pixel_size(28)
+            image.set_halign(Gtk.Align.CENTER); image.set_valign(Gtk.Align.CENTER); image.set_vexpand(True)
+            well.append(image); content.append(well)
+            caption=label(title,xalign=.5); caption.add_css_class('mode-caption'); content.append(caption)
+            overlay=Gtk.Overlay(child=content)
+            check=Gtk.Image.new_from_icon_name('object-select-symbolic'); check.set_pixel_size(14)
+            check.add_css_class('mode-check'); check.set_halign(Gtk.Align.END); check.set_valign(Gtk.Align.START)
+            overlay.add_overlay(check); self.checks.append(check)
+            tile.set_child(overlay)
             tile.connect('clicked',lambda _,i=index:self.choose(i))
             self.buttons.append(tile); self.append(tile)
         if self.buttons: self.set_selected(0)
@@ -58,7 +68,9 @@ class ModeTiles(Gtk.FlowBox):
 
     def set_selected(self, index):
         self.selected=index if 0<=index<len(self.buttons) else Gtk.INVALID_LIST_POSITION
-        for i,tile in enumerate(self.buttons): tile.set_active(i==self.selected)
+        for i,tile in enumerate(self.buttons):
+            tile.set_active(i==self.selected)
+            self.checks[i].set_opacity(1 if i==self.selected else 0)
 
     def get_selected(self):
         return self.selected
