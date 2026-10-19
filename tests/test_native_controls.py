@@ -9,11 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'DAMM-Daemon'))
-from native_controls import NativeControls
-from acer_hid import frame, VendorKeyboard
-from predator_button import button_pressed
-spec = importlib.util.spec_from_file_location('damx_server', ROOT / 'DAMM-Daemon/DAMX-Daemon.py')
+sys.path.insert(0, str(ROOT))
+from hardware.controls import NativeControls
+from hardware.hid import frame, VendorKeyboard
+from hardware.hotkey import button_pressed
+spec = importlib.util.spec_from_file_location('hardware.daemon', ROOT / 'hardware/daemon.py')
 daemon = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(daemon)
 
@@ -148,9 +148,9 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(previous, c.state_file.read_text())
 
     def test_logo_uses_logo_specific_mode_path(self):
-        from acer_hid import CoverLogo
+        from hardware.hid import CoverLogo
         sent = []
-        with patch('acer_hid.os.open', return_value=3), patch('acer_hid.os.close'), patch('acer_hid.time.sleep'), patch('acer_hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
+        with patch('hardware.hid.os.open', return_value=3), patch('hardware.hid.os.close'), patch('hardware.hid.time.sleep'), patch('hardware.hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
             CoverLogo('/dev/fake').effect(0, (255,35,0), 5, 100)
         self.assertEqual(frame(0x08, 3, 1, 11, 100, 0, 0), sent[-1])
         self.assertEqual(frame(0x14, 0, 0, 255,35,0,0), sent[-2])
@@ -158,7 +158,7 @@ class NativeTests(unittest.TestCase):
     def test_mag_color_scope_and_mode(self):
         kb = VendorKeyboard('/dev/fake')
         sent = []
-        with patch('acer_hid.os.open', return_value=3), patch('acer_hid.os.close'), patch('acer_hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
+        with patch('hardware.hid.os.open', return_value=3), patch('hardware.hid.os.close'), patch('hardware.hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
             kb.effect(1, (255,35,0), 4, 90, mag=True)
         self.assertEqual(frame(0x08, 2, 0x42, 6, 90, 0, 0), sent[2])
         self.assertEqual(frame(0x14, 0, 1, 255,35,0,0), sent[3])
@@ -215,25 +215,25 @@ class NativeTests(unittest.TestCase):
         c.bar_bridge = bar
         params = dict(target='lightbar', mode=0, color='ff2300', speed=5,
                       brightness=90, direction=1)
-        with patch.object(c, '_write') as write, patch('native_controls.time.sleep'):
+        with patch.object(c, '_write') as write, patch('hardware.controls.time.sleep'):
             c.command('set_lighting', params)
         self.assertEqual(['1 3 90 1 255 35 0', '0 3 90 1 255 35 0'],
                          [call.args[1] for call in write.call_args_list])
         previous = c.state_file.read_text()
         with patch.object(c, '_write', side_effect=[None, OSError('static failed')]), \
-             patch('native_controls.time.sleep'):
+             patch('hardware.controls.time.sleep'):
             with self.assertRaises(OSError):
                 c.command('set_lighting', dict(params, color='0000ff'))
         self.assertEqual(previous, c.state_file.read_text())
-        with patch.object(c, '_write') as write, patch('native_controls.time.sleep'):
+        with patch.object(c, '_write') as write, patch('hardware.controls.time.sleep'):
             c.command('set_light_color', dict(target='lightbar', red=0, green=50, blue=255))
         self.assertEqual(['1 3 100 1 0 50 255', '0 3 100 1 0 50 255'],
                          [call.args[1] for call in write.call_args_list])
 
     def test_original_dll_effect_sequence_and_color_order(self):
         reports = []
-        with patch('acer_hid.os.open', return_value=7), patch('acer_hid.os.close'), \
-             patch('acer_hid.send_feature', side_effect=lambda fd, data: reports.append(data)):
+        with patch('hardware.hid.os.open', return_value=7), patch('hardware.hid.os.close'), \
+             patch('hardware.hid.send_feature', side_effect=lambda fd, data: reports.append(data)):
             VendorKeyboard('/dev/test').effect(1, (255, 20, 80), 7, 60)
         self.assertEqual([frame(0xB1), frame(8, 2), frame(8, 2, 2, 3, 60, 0, 0),
                           frame(0x14, 0, 0, 255, 20, 80, 0)], reports)

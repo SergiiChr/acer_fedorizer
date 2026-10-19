@@ -46,7 +46,9 @@ Hardware smoke testing accepted stock profile read/write, automatic fan mode, ke
 
 ## Desktop portal and editor fixes
 
-The previous first-login `sg damx` launcher changed the GUI group credentials, making `/proc/<GUI PID>/root` inaccessible to the file chooser portal. The launcher now executes normally; the root daemon assigns the control socket to the installing desktop UID and the damx group, with mode 0660. The GUI has real/effective UID and GID 1000 and its process root is readable by the desktop session.
+The GUI runs with unchanged desktop credentials. The root service assigns its
+control socket to the installing desktop UID and the restricted `fedorizer`
+group with mode 0660. Session D-Bus operations remain in the desktop process.
 
 Lighting now uses one device/effect editor for Keyboard, WASD, Logo, and Bar. Unsupported effects are disabled per device. Explicit hex input and color swatches accompany the color picker; apply feedback identifies the device and submitted color. Four static keyboard zones remain in a collapsed advanced section. The installer stages the GUI in a new directory and swaps it in, so updating an open executable no longer fails with ETXTBSY.
 

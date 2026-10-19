@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
-    "display_config", Path(__file__).resolve().parents[1] / "DivAcerManagerMax/display_config.py")
+    "display_config", Path(__file__).resolve().parents[1] / "control_center/display.py")
 display = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(display)
 

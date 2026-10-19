@@ -11,8 +11,8 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'DAMM-Daemon'))
-from native_controls import NativeControls
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from hardware.controls import NativeControls
 
 
 def inspect_and_exercise(args, state_file):
@@ -45,7 +45,7 @@ def main():
     parser.add_argument('--exercise', action='store_true')
     args = parser.parse_args()
     # Root exercises must not follow a predictable /tmp state-file symlink.
-    with tempfile.TemporaryDirectory(prefix='damx-selftest-') as directory:
+    with tempfile.TemporaryDirectory(prefix='fedorizer-selftest-') as directory:
         inspect_and_exercise(args, str(Path(directory) / 'lighting.json'))
 
 

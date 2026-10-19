@@ -1,25 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# Native PH16-72 edition; modified October 2026. Attribution and terms: NOTICE.md.
-# Package the native checkout with its tested self-contained GUI.
+# The distributable is source-complete; there is no compiled GUI payload.
 set -euo pipefail
-REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-OUTPUT=${1:-$REPO_DIR/publish/damx-native.tar.gz}
-[[ -x "$REPO_DIR/publish/native/DivAcerManagerMax" ]] || {
-    echo 'Build first: scripts/local-setup.sh --build'; exit 1;
-}
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+OUTPUT=${1:-$ROOT/publish/acer-fedorizer.tar.gz}
 mkdir -p -- "$(dirname -- "$OUTPUT")"
-tar --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' --exclude='*.cmd' --exclude='*.mod*' --exclude='Module.symvers' --exclude='modules.order' -czf "$OUTPUT" -C "$REPO_DIR" \
-    publish/native DAMM-Daemon native-lightbar \
-    setup.sh scripts/local-setup.sh scripts/install-lightbar.sh scripts/native-selftest.py \
-    scripts/setup-common.sh scripts/install-dependencies.sh scripts/install-status.sh scripts/clean-build.sh \
-    DivAcerManagerMax/icon.png AGENTS.md CONTRIBUTING.md REVIEW.md README.md FAQ.md Compatibility.md NATIVE-CONTROLS.md LICENSE NOTICE.md THIRD-PARTY-NOTICES.md LICENSES
-SOURCE_OUTPUT="${OUTPUT%.tar.gz}-source.tar.gz"
-tar --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' --exclude='*.cmd' --exclude='*.mod*' --exclude='Module.symvers' --exclude='modules.order' -czf "$SOURCE_OUTPUT" -C "$REPO_DIR" \
-    DivAcerManagerMax DivAcerManagerMax.sln global.json DAMM-Daemon native-lightbar scripts tests \
-    setup.sh AGENTS.md CONTRIBUTING.md REVIEW.md .github .gitignore README.md FAQ.md Compatibility.md NATIVE-CONTROLS.md LICENSE NOTICE.md THIRD-PARTY-NOTICES.md LICENSES
-(
-    cd -- "$(dirname -- "$OUTPUT")"
-    sha256sum -- "$(basename -- "$OUTPUT")" "$(basename -- "$SOURCE_OUTPUT")"
-) > "$OUTPUT.sha256"
-printf 'Created %s\n' "$OUTPUT"
+"$ROOT/scripts/clean-build.sh"
+tar --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' \
+    --exclude='*.cmd' --exclude='*.mod*' --exclude='Module.symvers' --exclude='modules.order' \
+    -czf "$OUTPUT" -C "$ROOT" \
+    control_center hardware assets native-lightbar scripts tests docs \
+    setup.sh run.sh AGENTS.md CONTRIBUTING.md README.md FAQ.md Compatibility.md \
+    NATIVE-CONTROLS.md REVIEW.md LICENSE NOTICE.md LICENSES .github .gitignore
+(cd -- "$(dirname -- "$OUTPUT")"; sha256sum -- "$(basename -- "$OUTPUT")") > "$OUTPUT.sha256"
+printf 'Created source-complete package: %s\n' "$OUTPUT"

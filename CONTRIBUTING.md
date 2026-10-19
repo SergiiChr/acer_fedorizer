@@ -1,66 +1,58 @@
 # Development
 
-Use Python 3 and the .NET 8 SDK on Linux x86_64. The Python daemon has no pip
-dependencies. Optional GNOME display integration uses distribution PyGObject.
-The public setup commands are `install`, `uninstall`, `status`, and `help`.
-For development/CI, use `scripts/local-setup.sh --build` with prerequisites
-already installed. This internal build helper does not install or remove the app.
-`DAMX_DOTNET` selects an SDK executable outside PATH. Build as your regular user. The build helper automatically removes intermediate
-`bin`/`obj` directories and caches after success or failure, retaining
-`publish/native` for packaging. Public setup removes that generated GUI after
-source installation; binary distributions retain their reusable GUI payload.
+Use system Python 3, PyGObject/Pycairo, GTK 4.10+, and libadwaita 1.4+.
+No pip packages or frontend compilation are required. `./run.sh` launches the
+app; `./run.sh --preview` uses labelled deterministic data and no hardware/session
+connections. `python3 -m hardware.daemon --inspect` is a live read-only diagnostic,
+not an offline test. Do not use diagnostic exercise mode for routine checks.
+
+## Source map
+
+- `control_center/app.py`: libadwaita windows and async actions; no root operations.
+- `control_center/widgets.py`: charts and geometry-based keyboard preview.
+- `control_center/client.py`: bounded, serialized JSON socket client.
+- `control_center/models.py`: independent lighting drafts and color validation.
+- `control_center/telemetry.py`: read-only sysfs/proc sampling; NVIDIA opt-in only.
+- `control_center/display.py`: unprivileged Mutter session-bus bridge.
+- `control_center/preview.py`: isolated preview data for screenshots and UI tests.
+- `hardware/`: preserved sysfs/HID controls, socket daemon, dedicated-button listener.
+- `native-lightbar/`: separate, strictly model-scoped GPLv2 kernel module.
+- `scripts/legacy-install.sh`: names retained solely to remove earlier installations.
+
+The app uses `/run/acer-fedorizer.sock` and `/var/lib/acer-fedorizer/lighting.json`.
+The root service is `fedorizer-daemon.service`, socket group `fedorizer`, and app
+files live under `/opt/acer-fedorizer`. Requests contain `command` and `params`;
+responses contain `success` plus `data` or `error`. Request limit is 65,536 bytes
+including newline; client responses are bounded at 262,144 bytes. The backend
+validates all writes independently of the GUI and serializes hardware access.
 
 ## Checks
 
 ```sh
-bash -n setup.sh scripts/*.sh
+bash -n setup.sh run.sh scripts/*.sh
 python3 -m unittest discover -s tests -v
-dotnet run --project tests/client-tests/ClientTests.csproj -c Release
-scripts/local-setup.sh --build
+GSK_RENDERER=cairo python3 scripts/ui-smoke.py
+GSK_RENDERER=cairo ./run.sh --screenshots docs/screenshots
 scripts/package.sh
 ```
 
-Python tests use temporary sysfs trees, fake HID devices, and local sockets.
-C# tests cover client framing/concurrency, lighting drafts, instance coordination,
-and NVIDIA telemetry parsing. They do not need root or an Acer laptop. CI runs
-the same checks; Python's standard unittest runner needs no test dependencies.
+UI checks require a graphical display; CI uses Xvfb and a private D-Bus session.
+Tests use temporary sysfs trees, fake system/package commands, and local sockets.
+They do not install the app or change firmware. UI smoke tests check real widget
+navigation, draft independence, refresh preservation, palette restrictions, and
+no startup writes. Preview screenshots are actual GTK renders, visibly labelled.
 
-## Architecture and protocol
+No polling may overwrite editing drafts or apply a setting automatically. Worker
+threads must not touch GTK. Stop timers on window closure, keep GPU sampling
+opt-in and off hidden pages, and never give the GUI elevated credentials.
+Hardware command acceptance is not visual verification of a lighting effect.
 
-The GUI sends newline-delimited JSON to `/run/DAMX.sock`. Requests are objects
-with a string `command` and object `params`. Responses contain `success` and
-`data` or `error`. The daemon limits requests to 65,536 bytes including newline,
-serializes hardware commands, and restricts the socket to its desktop owner and
-`damx` group. Group membership grants hardware-control access.
+## Packaging and notices
 
-Read-only examples: `ping`, `get_version`, `get_all_settings`, and
-`get_supported_features`. `get_keyboard_layout` queries HID geometry.
-`native_controls.py:command` is the dispatch reference; `DAMXClient.cs` defines
-client models. Hardware writes require backend validation even if the UI has
-already validated input. Tests should exercise invalid input, unavailable
-capabilities, partial writes, and persistence failures.
-
-The display helper uses the logged-in user's session bus independently of the
-root daemon. The optional lightbar module exposes constrained sysfs commands;
-it must remain DMI-restricted. See NATIVE-CONTROLS.md for evidence and limits.
-
-## Dependencies and distribution
-
-NuGet versions are recorded in `DivAcerManagerMax/packages.lock.json`. Restore
-with `dotnet restore DivAcerManagerMax/DivAcerManagerMax.csproj --locked-mode`
-when checking dependency reproducibility. For upgrades, intentionally restore
-without locked mode and review both dependency and license changes.
-
-Build regenerates THIRD-PARTY-NOTICES.md using `scripts/collect-licenses.py`
-and copies notices into the staged self-contained application before replacing
-the previous build. Shared upstream license texts are curated in LICENSES.
-
-`scripts/package.sh` creates binary and matching source archives plus SHA-256
-checksums. The source includes tests, build scripts, agent guidance, and CI.
-Extract binary and source archives into separate directories. Keep all license
-texts, source headers, and NOTICE.md. Generated builds, caches, IDE state, and
-proprietary references do not belong in source control or source archives.
-
-For bug reports include model, BIOS, kernel, desktop, package versions, relevant
-service logs, and whether a result was visually confirmed. Remove personal
-information from logs. Attribute borrowed work as described in NOTICE.md.
+`scripts/package.sh` includes all application and corresponding kernel-module
+source, scripts, tests, docs, and license terms in one archive. Release output is
+ignored under `publish/`. Setup/package cleanup removes Python caches and local
+kernel build output, retaining source and required notices. No SDK/runtime build
+cache is part of the application. Update NOTICE.md for borrowed code/assets and
+system dependencies; preserve upstream authorship even when names are removed
+from live module identifiers. Keep full license texts intact.

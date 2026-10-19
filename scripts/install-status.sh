@@ -10,20 +10,20 @@ check() {
     shift
     if "$@"; then printf 'OK: %s\n' "$label"; else printf 'FAIL: %s\n' "$label"; failed=1; fi
 }
-printf 'DAMX installation status\nModel: %s\nKernel: %s\n' "$(cat "$PRODUCT_FILE" 2>/dev/null || echo unknown)" "$(uname -r)"
+printf 'Acer Fedorizer installation status\nModel: %s\nKernel: %s\n' "$(cat "$PRODUCT_FILE" 2>/dev/null || echo unknown)" "$(uname -r)"
 if ! installation_exists; then
     echo 'Not installed. Run ./setup.sh install.'
     exit 1
 fi
-check 'Application executable' test -x "$APP_DIR/gui/DivAcerManagerMax"
-check 'Daemon source files' test -f "$APP_DIR/daemon/DAMX-Daemon.py"
+check 'Application module' test -f "$APP_DIR/control_center/__main__.py"
+check 'Daemon source files' test -f "$APP_DIR/hardware/daemon.py"
 check 'Desktop launcher' test -x "$LAUNCHER"
 check 'Desktop menu entry' test -f "$DESKTOP_FILE"
-check 'Daemon service enabled' systemctl is-enabled --quiet damx-daemon.service
-check 'Daemon service running' systemctl is-active --quiet damx-daemon.service
-check 'Control socket exists' test -S "$RUN_DIR/DAMX.sock"
-if [[ -S "$RUN_DIR/DAMX.sock" ]]; then
-    check 'Daemon responds to ping' python3 - "$RUN_DIR/DAMX.sock" <<'PY'
+check 'Daemon service enabled' systemctl is-enabled --quiet fedorizer-daemon.service
+check 'Daemon service running' systemctl is-active --quiet fedorizer-daemon.service
+check 'Control socket exists' test -S "$RUN_DIR/acer-fedorizer.sock"
+if [[ -S "$RUN_DIR/acer-fedorizer.sock" ]]; then
+    check 'Daemon responds to ping' python3 - "$RUN_DIR/acer-fedorizer.sock" <<'PY'
 import json
 import socket
 import sys
@@ -48,7 +48,7 @@ if lightbar_supported; then
     check 'Rear lightbar driver loaded' test -d "$MODULE_DIR"
     if command -v dkms >/dev/null; then
         # Capture the full output so no producer gets SIGPIPE.
-        if report=$(dkms status -m damx-lightbar -v 0.2.0 -k "$(uname -r)"); then
+        if report=$(dkms status -m laptop-lightbar -v 0.2.0 -k "$(uname -r)"); then
             if [[ "$report" == *": installed"* ]]; then
                 echo 'OK: Rear lightbar driver installed for the running kernel'
             else
@@ -65,7 +65,7 @@ else
 fi
 if [[ $failed -ne 0 ]]; then
     echo 'Repair: run ./setup.sh install.'
-    echo 'Service logs: journalctl -u damx-daemon.service -b --no-pager -n 30'
+    echo 'Service logs: journalctl -u fedorizer-daemon.service -b --no-pager -n 30'
     exit 1
 fi
 echo 'Installation is healthy.'

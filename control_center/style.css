@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+window { font-family: "Adwaita Sans", "Cantarell", sans-serif; }
+.navigation-sidebar { background: transparent; padding: 8px 12px; }
+.navigation-sidebar row { border-radius: 10px; margin: 3px 0; padding: 10px 12px; }
+.navigation-sidebar row:selected { background: alpha(@accent_color, .16); color: @accent_color; }
+.brand { font-weight: 800; letter-spacing: .6px; font-size: 12px; }
+.page-heading { font-size: 30px; font-weight: 800; letter-spacing: -1px; }
+.page-description { font-size: 14px; color: @dim_label_color; }
+.eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; color: @dim_label_color; }
+.metric { font-size: 40px; font-weight: 750; letter-spacing: -1.5px; }
+.metric-small { font-size: 24px; font-weight: 700; }
+.metric-card { padding: 22px; border-radius: 18px; background: @card_bg_color; }
+.status-pill { padding: 5px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; background: alpha(@accent_color, .14); color: @accent_color; }
+.hero { border-radius: 20px; padding: 24px; background: linear-gradient(115deg, alpha(@accent_color,.20), alpha(@accent_color,.04)); border: 1px solid alpha(@accent_color,.17); }
+.hero-value { font-size: 44px; font-weight: 800; letter-spacing: -1.5px; }
+.keyboard-card { background: @card_bg_color; border-radius: 18px; padding: 16px; }
+.core-pill { background: alpha(@window_fg_color,.06); border-radius: 8px; padding: 8px 10px; font-size: 11px; }
+.preview-badge { color: #e5b567; background: alpha(#e5b567,.12); padding: 4px 10px; border-radius: 16px; font-size: 11px; }
+.sidebar-footer { padding: 16px 24px; font-size: 11px; color: @dim_label_color; }

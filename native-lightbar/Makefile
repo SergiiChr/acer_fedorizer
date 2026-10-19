@@ -1,4 +1,4 @@
-obj-m += damx_lightbar.o
+obj-m += laptop_lightbar.o
 KDIR ?= /lib/modules/$(shell uname -r)/build
 all:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
