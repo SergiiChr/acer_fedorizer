@@ -1,0 +1,830 @@
+{
+  "width": 339450,
+  "height": 104950,
+  "lamps": [
+    {
+      "id": 0,
+      "x": 5900,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 41
+    },
+    {
+      "id": 1,
+      "x": 26700,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 58
+    },
+    {
+      "id": 2,
+      "x": 42900,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 59
+    },
+    {
+      "id": 3,
+      "x": 59100,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 60
+    },
+    {
+      "id": 4,
+      "x": 73978,
+      "y": 5268,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 61
+    },
+    {
+      "id": 5,
+      "x": 94725,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 62
+    },
+    {
+      "id": 6,
+      "x": 110925,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 63
+    },
+    {
+      "id": 7,
+      "x": 127125,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 64
+    },
+    {
+      "id": 8,
+      "x": 143325,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 65
+    },
+    {
+      "id": 9,
+      "x": 162750,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 66
+    },
+    {
+      "id": 10,
+      "x": 178950,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 67
+    },
+    {
+      "id": 11,
+      "x": 195150,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 68
+    },
+    {
+      "id": 12,
+      "x": 211350,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 69
+    },
+    {
+      "id": 13,
+      "x": 230775,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 70
+    },
+    {
+      "id": 14,
+      "x": 246975,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 73
+    },
+    {
+      "id": 15,
+      "x": 263175,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 76
+    },
+    {
+      "id": 16,
+      "x": 282125,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 17,
+      "x": 298325,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 18,
+      "x": 314525,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 19,
+      "x": 330725,
+      "y": 5250,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 20,
+      "x": 5020,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 53
+    },
+    {
+      "id": 21,
+      "x": 23090,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 30
+    },
+    {
+      "id": 22,
+      "x": 42040,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 31
+    },
+    {
+      "id": 23,
+      "x": 60990,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 32
+    },
+    {
+      "id": 24,
+      "x": 79940,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 33
+    },
+    {
+      "id": 25,
+      "x": 98890,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 34
+    },
+    {
+      "id": 26,
+      "x": 117840,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 35
+    },
+    {
+      "id": 27,
+      "x": 136790,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 36
+    },
+    {
+      "id": 28,
+      "x": 155740,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 37
+    },
+    {
+      "id": 29,
+      "x": 174690,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 38
+    },
+    {
+      "id": 30,
+      "x": 193640,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 39
+    },
+    {
+      "id": 31,
+      "x": 212590,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 45
+    },
+    {
+      "id": 32,
+      "x": 231540,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 46
+    },
+    {
+      "id": 33,
+      "x": 256138,
+      "y": 18764,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 42
+    },
+    {
+      "id": 34,
+      "x": 282125,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 35,
+      "x": 298325,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 83
+    },
+    {
+      "id": 36,
+      "x": 314525,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 84
+    },
+    {
+      "id": 37,
+      "x": 330725,
+      "y": 21550,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 85
+    },
+    {
+      "id": 38,
+      "x": 6079,
+      "y": 43200,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 43
+    },
+    {
+      "id": 39,
+      "x": 32610,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 20
+    },
+    {
+      "id": 40,
+      "x": 51560,
+      "y": 40501,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 26
+    },
+    {
+      "id": 41,
+      "x": 70510,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 8
+    },
+    {
+      "id": 42,
+      "x": 89460,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 21
+    },
+    {
+      "id": 43,
+      "x": 108410,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 23
+    },
+    {
+      "id": 44,
+      "x": 127360,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 28
+    },
+    {
+      "id": 45,
+      "x": 146310,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 24
+    },
+    {
+      "id": 46,
+      "x": 165260,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 12
+    },
+    {
+      "id": 47,
+      "x": 184210,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 18
+    },
+    {
+      "id": 48,
+      "x": 203160,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 19
+    },
+    {
+      "id": 49,
+      "x": 222110,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 47
+    },
+    {
+      "id": 50,
+      "x": 241060,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 48
+    },
+    {
+      "id": 51,
+      "x": 260905,
+      "y": 40500,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 49
+    },
+    {
+      "id": 52,
+      "x": 282125,
+      "y": 43530,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 95
+    },
+    {
+      "id": 53,
+      "x": 298325,
+      "y": 43530,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 96
+    },
+    {
+      "id": 54,
+      "x": 314525,
+      "y": 43530,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 97
+    },
+    {
+      "id": 55,
+      "x": 330725,
+      "y": 43530,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 86
+    },
+    {
+      "id": 56,
+      "x": 5887,
+      "y": 57062,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 57
+    },
+    {
+      "id": 57,
+      "x": 37370,
+      "y": 59451,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 4
+    },
+    {
+      "id": 58,
+      "x": 56320,
+      "y": 59451,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 22
+    },
+    {
+      "id": 59,
+      "x": 75270,
+      "y": 59451,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 7
+    },
+    {
+      "id": 60,
+      "x": 94220,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 9
+    },
+    {
+      "id": 61,
+      "x": 113170,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 10
+    },
+    {
+      "id": 62,
+      "x": 132120,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 11
+    },
+    {
+      "id": 63,
+      "x": 151070,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 13
+    },
+    {
+      "id": 64,
+      "x": 170020,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 14
+    },
+    {
+      "id": 65,
+      "x": 188970,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 15
+    },
+    {
+      "id": 66,
+      "x": 207920,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 51
+    },
+    {
+      "id": 67,
+      "x": 226870,
+      "y": 59450,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 52
+    },
+    {
+      "id": 68,
+      "x": 253810,
+      "y": 56670,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 40
+    },
+    {
+      "id": 69,
+      "x": 282125,
+      "y": 62480,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 92
+    },
+    {
+      "id": 70,
+      "x": 298325,
+      "y": 62480,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 93
+    },
+    {
+      "id": 71,
+      "x": 314525,
+      "y": 62480,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 94
+    },
+    {
+      "id": 72,
+      "x": 330725,
+      "y": 62480,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 87
+    },
+    {
+      "id": 73,
+      "x": 16874,
+      "y": 75770,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 225
+    },
+    {
+      "id": 74,
+      "x": 46800,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 29
+    },
+    {
+      "id": 75,
+      "x": 65750,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 27
+    },
+    {
+      "id": 76,
+      "x": 84700,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 6
+    },
+    {
+      "id": 77,
+      "x": 103650,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 25
+    },
+    {
+      "id": 78,
+      "x": 122600,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 5
+    },
+    {
+      "id": 79,
+      "x": 141550,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 17
+    },
+    {
+      "id": 80,
+      "x": 160500,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 16
+    },
+    {
+      "id": 81,
+      "x": 179450,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 54
+    },
+    {
+      "id": 82,
+      "x": 198400,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 55
+    },
+    {
+      "id": 83,
+      "x": 217350,
+      "y": 78400,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 56
+    },
+    {
+      "id": 84,
+      "x": 235875,
+      "y": 81100,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 229
+    },
+    {
+      "id": 85,
+      "x": 261800,
+      "y": 80800,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 82
+    },
+    {
+      "id": 86,
+      "x": 282125,
+      "y": 81430,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 89
+    },
+    {
+      "id": 87,
+      "x": 298325,
+      "y": 81430,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 90
+    },
+    {
+      "id": 88,
+      "x": 314525,
+      "y": 81430,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 91
+    },
+    {
+      "id": 89,
+      "x": 7400,
+      "y": 97349,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 224
+    },
+    {
+      "id": 90,
+      "x": 27850,
+      "y": 97350,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 0
+    },
+    {
+      "id": 91,
+      "x": 46800,
+      "y": 97350,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 227
+    },
+    {
+      "id": 92,
+      "x": 65750,
+      "y": 97350,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 226
+    },
+    {
+      "id": 93,
+      "x": 122601,
+      "y": 100030,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 44
+    },
+    {
+      "id": 94,
+      "x": 176623,
+      "y": 97351,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 230
+    },
+    {
+      "id": 95,
+      "x": 198400,
+      "y": 97350,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 101
+    },
+    {
+      "id": 96,
+      "x": 220625,
+      "y": 97350,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 114
+    },
+    {
+      "id": 97,
+      "x": 242850,
+      "y": 99750,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 80
+    },
+    {
+      "id": 98,
+      "x": 261800,
+      "y": 99750,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 81
+    },
+    {
+      "id": 99,
+      "x": 280750,
+      "y": 99750,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 79
+    },
+    {
+      "id": 100,
+      "x": 298325,
+      "y": 100380,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 98
+    },
+    {
+      "id": 101,
+      "x": 314525,
+      "y": 100380,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 99
+    },
+    {
+      "id": 102,
+      "x": 332905,
+      "y": 89905,
+      "z": 0,
+      "programmable": true,
+      "key_usage": 88
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # Frequently asked questions
 
-**Will NVIDIA updates require reinstalling DAMX?**
+**Will NVIDIA updates require reinstalling Acer Fedorizer?**
 Core controls are independent of NVIDIA and use stock kernel drivers. The optional bar module uses DKMS to rebuild after kernel updates. Its build still requires matching kernel headers.
 
 **Why does the performance selection change?**
-It displays the stock driver's current profile every two seconds, including changes made through the hardware button or another application. It does not apply a profile merely because you opened DAMX.
+It displays the stock driver's current profile every two seconds, including changes made through the hardware button or another application. It does not apply a profile merely because you opened Acer Fedorizer.
 
 **Why can't I change a color for every effect?**
 Neon and Wave use firmware palettes in the native interface. Other listed effects send the separate color command used by Acer's original software. Lighting state is the last successful command; hardware effect readback has not been verified.
@@ -19,8 +19,8 @@ GPU monitoring is opt-in because NVIDIA queries may wake the discrete GPU. Enabl
 They appear only when supported stock kernel attributes exist. This firmware does not expose most optional controls.
 
 **Where are logs and settings?**
-Use `journalctl -u damx-daemon.service -b` for service logs. Successful lighting
-commands are saved in `/var/lib/damx/lighting.json`. Reinstalling with `./setup.sh install` resets this state after asking for
+Use `journalctl -u fedorizer-daemon.service -b` for service logs. Successful lighting
+commands are saved in `/var/lib/acer-fedorizer/lighting.json`. Reinstalling with `./setup.sh install` resets this state after asking for
 confirmation.
 
 **What should I do if installation fails?**
@@ -34,7 +34,7 @@ DKMS signing key; a module load failure is reported instead of claiming success.
 **What does uninstall remove?**
 `./setup.sh uninstall` removes the application, service, desktop launcher/icon,
 control socket, lighting state, old installation backups, socket-access group,
-and every DAMX lightbar DKMS version and its installed module/source files.
+and every Acer Fedorizer lightbar DKMS version and its installed module/source files.
 Repeated uninstall is safe. Shared OS packages and this downloaded folder stay.
 It does not revert desktop color-management choices already saved in Mutter.
 

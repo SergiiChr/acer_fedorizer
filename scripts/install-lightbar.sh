@@ -12,12 +12,12 @@ lightbar_supported || { echo 'This bridge supports only Predator PH16-72.' >&2; 
 command -v dkms >/dev/null || { echo 'DKMS is missing. Run ./setup.sh install.' >&2; exit 1; }
 # Always remove existing versions before adding: no status | grep -q pipelines.
 remove_lightbar
-install -d "$SOURCE_TREE/damx-lightbar-0.2.0"
-install -m 644 "$SCRIPT_DIR/../native-lightbar/"{damx_lightbar.c,Makefile,dkms.conf} "$SOURCE_TREE/damx-lightbar-0.2.0/"
-install -m 644 "$SCRIPT_DIR/../LICENSES/GPL-2.0.txt" "$SOURCE_TREE/damx-lightbar-0.2.0/LICENSE"
-dkms add -m damx-lightbar -v 0.2.0
-dkms install -m damx-lightbar -v 0.2.0 -k "$(uname -r)"
-if ! modprobe damx_lightbar; then
+install -d "$SOURCE_TREE/laptop-lightbar-0.2.0"
+install -m 644 "$SCRIPT_DIR/../native-lightbar/"{laptop_lightbar.c,Makefile,dkms.conf} "$SOURCE_TREE/laptop-lightbar-0.2.0/"
+install -m 644 "$SCRIPT_DIR/../LICENSES/GPL-2.0.txt" "$SOURCE_TREE/laptop-lightbar-0.2.0/LICENSE"
+dkms add -m laptop-lightbar -v 0.2.0
+dkms install -m laptop-lightbar -v 0.2.0 -k "$(uname -r)"
+if ! modprobe laptop_lightbar; then
     echo 'The lightbar driver was built but could not load. Secure Boot may require enrolling your distribution DKMS signing key. Run ./setup.sh status for details.' >&2
     exit 1
 fi

@@ -1,111 +1,104 @@
-# Div Acer Manager Max — native PH16-72 edition
+# Acer Fedorizer
 
-Linux performance, cooling, lighting, and monitoring controls for the Acer
-Predator PH16-72. This edition uses stock `acer_wmi` and direct USB HID. An
-optional DKMS module controls the rear lightbar. Other models are unverified;
-see [Compatibility.md](Compatibility.md).
+A native GTK4/libadwaita control center for the Acer Predator PH16-72 on Linux.
+Performance, cooling, keyboard and chassis lighting, battery care, and display
+color management in one desktop application. Uses Python and distribution GUI
+libraries; no separate SDK, bundled language runtime, or frontend build step.
 
-## Setup
+## Install
 
-From the downloaded source folder or extracted binary archive, run:
+From the downloaded folder:
 
 ```sh
 ./setup.sh install
 ```
 
-Setup installs all dependencies and the complete app. It automatically handles
-source builds, desktop integration, and the PH16-72 rear lightbar driver.
-Run it as your desktop user; it requests sudo for system changes.
+Setup installs the native dependencies, daemon, desktop launcher, and the
+model-specific rear lightbar driver. Open **Acer Fedorizer** from your application
+menu or run `acer-fedorizer`. Run setup as your desktop user; it requests sudo
+for system changes. The GUI itself runs without administrator privileges.
 
-There are four commands:
-
-| Command | What it does |
+| Command | Action |
 | --- | --- |
-| `./setup.sh install` | Install a fresh copy, or completely overwrite an existing installation. |
-| `./setup.sh uninstall` | Completely remove the app, saved settings, backups, and lightbar driver. |
-| `./setup.sh status` | Check the app, daemon, socket connection, and lightbar installation without changing anything. |
+| `./setup.sh install` | Install or completely replace the existing installation. |
+| `./setup.sh uninstall` | Remove app files, settings, backups, and the lightbar driver. |
+| `./setup.sh status` | Read-only checks of the service, socket, files, and driver. |
 | `./setup.sh help` | Explain these commands. |
 
-If an installation or leftover files are detected, install asks:
-`This will completely overwrite your installation. Proceed? [y/n]`
-Only `y` continues; any other answer or end of input cancels before any changes.
-Overwrite resets saved lighting settings and removes old installation backups.
-Source downloads always rebuild, so old local build output cannot silently win.
-Binary archives use their included application and need no .NET SDK.
-Setup removes compiler intermediates, Python caches, and local module build
-leftovers on success or failure. Source installs also remove the temporary
-published GUI after copying it into place. Binary archives retain their included
-GUI so they can be used again. Release archives and license notices are retained.
+Existing or older installations trigger
+`This will completely overwrite your installation. Proceed? [y/n]`.
+Only `y` continues; cancellation changes nothing. Reinstallation resets saved
+lighting state only after a successful replacement. Before removing an existing
+installation, setup stages the new app and builds/signs the lightbar module in
+private DKMS trees. The new service must answer a bounded startup ping before
+the recovery snapshot is discarded. A subsequent driver or service failure restores the previous
+app, settings, service state, groups, and driver files/registrations. If rollback
+itself fails, setup reports the retained recovery archive rather than deleting it.
+Dependency-package changes are outside this app rollback; an uncatchable process
+kill or power loss may require recovery from the retained snapshot.
+The upgrade cleanup module removes the former installation's
+service, socket, files, group, and driver registrations, so both daemons cannot
+compete. OS packages shared with other applications and this downloaded folder
+are retained during uninstall.
 
-When setup succeeds, open **DAMX** from the applications menu or run `DAMX`.
-If setup fails, run `./setup.sh status` for a readable diagnosis and repair
-instructions. Repeating install replaces existing DKMS registrations rather
-than trying to add the same module twice.
+Supported setup environments: Fedora, Ubuntu 24.04, and Debian 13 on Linux
+x86_64 with systemd, GTK 4.10+, and libadwaita 1.4+. Debian 12's stock libraries
+are too old for this interface. Hardware support remains PH16-72-specific;
+see [Compatibility.md](Compatibility.md). Secure Boot may require enrolling
+the distribution's DKMS signing key before the rear lightbar module loads.
 
-Automatic dependencies support Fedora, Ubuntu 24.04, and Debian 12/13 on Linux
-x86_64 with systemd. Other distributions are currently unsupported by setup.
-Package-manager support does not imply hardware compatibility. Stock
-`acer_wmi` must remain enabled. Secure Boot can require enrolling the
-distribution's DKMS signing key before a newly built module will load.
+## Screens and behavior
 
-Installation uses `/opt/damx`; lighting state is in
-`/var/lib/damx/lighting.json`. The root daemon exposes `/run/DAMX.sock` to the
-installing desktop user and restricted `damx` group. Uninstall removes all of
-these, desktop integration, prior app backups, and DAMX module sources and
-registrations across kernels. Shared OS dependencies (including SDK/compiler
-packages) and the downloaded source folder remain, since other software can use
-them. Desktop display preferences already applied through Mutter remain desktop
-preferences. See [FAQ.md](FAQ.md) for troubleshooting.
+- **Dashboard:** CPU usage/temperature, memory, physical-core frequencies, and
+  optional NVIDIA temperature, VRAM, and board power. GPU monitoring starts off;
+  enabling it may wake the discrete GPU. Sampling stops when the GUI closes.
+- **Power & Performance:** detected stock-driver profiles and fan modes, with RPM and
+  an explicit Apply action. Fan write failures restore automatic cooling.
+- **Lighting:** independent device drafts, firmware effects, linked WASD,
+  coordinated all-lights settings, four-zone colors, and per-key static editing
+  using the keyboard's reported LED geometry. Lighting is last successful
+  command state, not hardware readback; firmware Wave animations are independent.
+- **Battery:** charge, time estimates when available, health/cycles, and only
+  charge/calibration controls actually exposed by the driver.
+- **Display:** persistent Native SDR color management on a supported active
+  built-in Mutter panel; preserves monitor configuration and is disabled with HDR.
+- **System Settings:** refresh installation status to check app files, service/socket,
+  and lightbar driver. Read-only checks need no sudo and show pass/fail/unknown
+  results. Also shows capabilities, connection details, and licenses/credits.
 
-## Controls and limits
+The lightweight Python hardware service stays running after the window closes,
+waiting for commands and the Predator button. It does not run dashboard or GPU
+monitoring. Existing hardware settings are not reset by closing the window.
 
-- Performance profiles and fan controls use detected stock platform-profile and
-  Acer hwmon interfaces. Profiles and RPM refresh every two seconds. A failed
-  manual fan write restores automatic cooling.
-- Keyboard controls include four zones, per-key static layouts using the
-  keyboard's reported geometry, native effects, and independent WASD lighting.
-- Lid logo and optional rear lightbar offer their supported firmware effects.
-  All-lights sync reports partial failures; animations are not phase-locked.
-  Neon and Wave use firmware palettes where arbitrary RGB is unavailable.
-- Battery status and supported charge controls have a separate tab. Unsupported
-  controls are hidden. MUX switching, scenarios, and GPU tuning are unavailable.
-- CPU and GPU telemetry includes per-core frequency and opt-in NVIDIA metrics,
-  VRAM, and power. GPU queries may wake the discrete GPU.
-- The Predator button opens or raises the app in the desktop session.
-- The Display tab offers persistent Native SDR color management for active
-  built-in panels advertising `sdr-native` in Mutter. It uses the user's D-Bus
-  session and PyGObject, preserves monitor arrangement, and is disabled with HDR.
-  It does not choose ICC profiles. See the [Mutter DisplayConfig interface](https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml).
+## Screenshots and safe preview
 
-Lighting state records the last successful command; firmware effect readback
-is unverified. Command acceptance does not prove the physical result. Protocol
-evidence and hardware observations are in [NATIVE-CONTROLS.md](NATIVE-CONTROLS.md).
+These are screenshots of actual GTK widgets with explicitly labelled preview
+data, not claims of live hardware measurements.
 
-## Development and review
+![Dashboard](docs/screenshots/overview.png)
+![Lighting](docs/screenshots/lighting.png)
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for architecture, tests, dependencies,
-and packaging, and [AGENTS.md](AGENTS.md) for agent instructions. Current review
-findings and validation limits are in [REVIEW.md](REVIEW.md).
+[Power & Performance](docs/screenshots/performance.png) · [Battery](docs/screenshots/battery.png) ·
+[Display](docs/screenshots/display.png) · [System Settings](docs/screenshots/diagnostics.png) ·
+[Per-key editor](docs/screenshots/keyboard.png) · [Credits](docs/screenshots/credits.png)
 
 ```sh
-python3 -m unittest discover -s tests -v
-dotnet run --project tests/client-tests/ClientTests.csproj -c Release
-scripts/local-setup.sh --build
-scripts/package.sh
+./run.sh --preview
+./run.sh --screenshots docs/screenshots
 ```
 
-Packaging creates binary and corresponding-source archives with checksums.
-`python3 scripts/native-selftest.py` inspects live capabilities. Its `--exercise`
-option changes profiles, fans, and lighting; use it only for deliberate hardware
-validation.
+Preview mode never connects to the hardware service or session display API.
+For source development with native dependencies already installed, `./run.sh`
+launches the real app without installing it.
 
-## Licensing and credits
+## Development and licensing
 
-Derived from [Div Acer Manager Max by PXDiv and contributors](https://github.com/PXDiv/Div-Acer-Manager-Max).
-The application/daemon use GPLv3; the separate lightbar module uses GPLv2.
-[NOTICE.md](NOTICE.md) credits the original app, historical driver work, protocol
-references, fonts, and libraries. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
-and [LICENSES](LICENSES) retain dependency terms. Preserve all notices and provide
-matching source with binary releases. No Acer proprietary reference binaries or
-extracts are distributed. Upstream credit links are not this edition's support
-or update destinations.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), and
+[NATIVE-CONTROLS.md](NATIVE-CONTROLS.md). `scripts/package.sh` produces one
+source-complete archive and a checksum. Python sources and all module/build
+sources are included; there is no separate binary GUI distribution.
+
+The application and daemon are GPLv3; the separate kernel bridge is GPLv2.
+[NOTICE.md](NOTICE.md) consolidates attribution, consulted protocol research,
+and runtime dependency notices. Full terms are in [LICENSE](LICENSE) and the
+remaining component license texts in [LICENSES](LICENSES).

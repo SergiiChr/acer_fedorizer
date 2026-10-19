@@ -19,10 +19,8 @@ native-lightbar/.*.cmd
 native-lightbar/Module.symvers
 native-lightbar/modules.order
 
-# Additional .NET output, downloaded SDK/cache files, and test reports
+# Compiler output and test reports
 artifacts/
-.dotnet/
-.nuget/
 .vs/
 TestResults/
 coverage/

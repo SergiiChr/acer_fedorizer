@@ -46,7 +46,9 @@ Hardware smoke testing accepted stock profile read/write, automatic fan mode, ke
 
 ## Desktop portal and editor fixes
 
-The previous first-login `sg damx` launcher changed the GUI group credentials, making `/proc/<GUI PID>/root` inaccessible to the file chooser portal. The launcher now executes normally; the root daemon assigns the control socket to the installing desktop UID and the damx group, with mode 0660. The GUI has real/effective UID and GID 1000 and its process root is readable by the desktop session.
+The GUI runs with unchanged desktop credentials. The root service assigns its
+control socket to the installing desktop UID and the restricted `fedorizer`
+group with mode 0660. Session D-Bus operations remain in the desktop process.
 
 Lighting now uses one device/effect editor for Keyboard, WASD, Logo, and Bar. Unsupported effects are disabled per device. Explicit hex input and color swatches accompany the color picker; apply feedback identifies the device and submitted color. Four static keyboard zones remain in a collapsed advanced section. The installer stages the GUI in a new directory and swaps it in, so updating an open executable no longer fails with ETXTBSY.
 
@@ -72,3 +74,27 @@ Matching parameters must not be described as phase-locked or spatially continuou
 Wave. No guessed firmware command or periodic animation reset is used to claim
 synchronization. Software per-key animation would need physical WASD coverage
 and frame-rate validation before being offered as a replacement.
+
+
+## WASD Wave color handling
+
+A user reported dark MAG/WASD keys in Wave while other modes still worked.
+The live saved command had nonzero RGB and brightness, so those values alone
+do not establish the cause. Static inspection of the model-specific
+SunrexUSBKeyboard.dll (SHA-256
+`f02e26d1f831988ef7fdefee776502002fbfef1225e91f15fb73444d8304414f`)
+confirms that MAG_Wave's descriptor declares one mode-specific color, unlike
+the main keyboard Wave palette. The GUI now allows editing that color and
+sends it rather than silently substituting the disabled picker value.
+The existing validated 0x43 transfer sequence remains unchanged. A test of the
+existing reverse-direction Wave command at medium speed was accepted, but the
+user confirmed WASD remained dark. The user subsequently reported that WASD
+lighting returns after changing brightness back and forth and considers that
+acceptable. The underlying firmware behavior is not established; no automatic
+retry or additional firmware workaround has been added. Command acceptance is
+not proof that a firmware effect is visible.
+
+Installation health checks are shared by the desktop System Settings refresh
+button and `setup.sh status`. They inspect files, systemd states, a bounded
+socket ping, the loaded module, and current-kernel DKMS status without sudo.
+They do not discover HID devices, change firmware, or load/unload modules.
