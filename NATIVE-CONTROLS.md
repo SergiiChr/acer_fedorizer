@@ -87,9 +87,12 @@ confirms that MAG_Wave's descriptor declares one mode-specific color, unlike
 the main keyboard Wave palette. The GUI now allows editing that color and
 sends it rather than silently substituting the disabled picker value.
 The existing validated 0x43 transfer sequence remains unchanged. A test of the
-existing reverse-direction Wave command at medium speed was accepted; visible
-animation still requires user confirmation. Command acceptance is not proof
-that a firmware effect is visible. No additional undocumented packet is used.
+existing reverse-direction Wave command at medium speed was accepted, but the
+user confirmed WASD remained dark. The user subsequently reported that WASD
+lighting returns after changing brightness back and forth and considers that
+acceptable. The underlying firmware behavior is not established; no automatic
+retry or additional firmware workaround has been added. Command acceptance is
+not proof that a firmware effect is visible.
 
 Installation health checks are shared by the desktop System Settings refresh
 button and `setup.sh status`. They inspect files, systemd states, a bounded

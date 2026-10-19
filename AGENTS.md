@@ -33,6 +33,14 @@ Names from earlier projects belong in attribution or directly used upgrade code,
 not the new UI. Preserve original licensing when renaming modules. The module
 must remain separate from the GPLv3 application and scoped to PH16-72.
 
+## Administrator access
+
+Use sudo/pkexec only when a task actually requires administrator access. Before
+requesting it, show each exact command on its own line with a plain-language
+explanation. Check whether ordinary user permissions are sufficient first.
+Status checks, tests, previews, and launching the GUI run as the desktop user.
+Do not leave pending privileged operations running after work is stopped.
+
 ## Validation
 
 ```sh
