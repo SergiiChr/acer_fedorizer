@@ -6,9 +6,9 @@ import re
 EFFECTS = {0:'Static', 1:'Breathing', 2:'Neon', 3:'Wave', 4:'Fireball',
            5:'Heartbeat', 6:'Dazzling', 7:'Snake', 8:'Ripple', 9:'Rain'}
 PROFILES = {'low-power':'Eco', 'quiet':'Quiet', 'balanced':'Balanced',
-            'balanced-performance':'Balanced performance', 'performance':'Performance'}
-TARGETS = {'keyboard':'Keyboard', 'wasd':'WASD', 'logo':'Lid logo',
-           'lightbar':'Rear lightbar', 'all':'All lights'}
+            'balanced-performance':'Performance', 'performance':'Turbo'}
+TARGETS = {'keyboard':'Keyboard', 'wasd':'WASD keys', 'logo':'Lid logo',
+           'lightbar':'Rear light bar', 'all':'All lights (sync)'}
 
 
 def rgb_hex(value):

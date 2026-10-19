@@ -11,16 +11,20 @@ from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 from .client import ControlClient
 from .models import LightingDraft, EFFECTS, PROFILES, TARGETS, full_key_map, rgb_hex
 from .telemetry import Telemetry
-from .widgets import label, box, HistoryChart, KeyboardCanvas, color_rgba, hex_rgba
+from .widgets import label, box, HistoryChart, KeyboardCanvas, ModeTiles, color_rgba, hex_rgba
 from . import preview, display
 
-PAGES=[('overview','Overview','view-grid-symbolic','Your laptop at a glance'),
-       ('performance','Performance','power-profile-performance-symbolic','Balance performance, acoustics, and cooling'),
-       ('lighting','Lighting','keyboard-brightness-symbolic','Make your keyboard and chassis your own'),
-       ('battery','Battery','battery-good-symbolic','Keep an eye on charge and long-term health'),
-       ('display','Display','video-display-symbolic','Native color management for your built-in panel'),
-       ('diagnostics','System','preferences-system-symbolic','Capabilities, connection details, and credits')]
+PAGES=[('overview','Dashboard','view-grid-symbolic','CPU, GPU, memory, and power status'),
+       ('performance','Power & Performance','power-profile-performance-symbolic','Performance profiles and fan speed control'),
+       ('lighting','Lighting','keyboard-brightness-symbolic','Keyboard, WASD, lid logo, and rear light bar settings'),
+       ('battery','Battery','battery-good-symbolic','Charge level, battery health, and charging controls'),
+       ('display','Display','video-display-symbolic','Built-in display color management'),
+       ('diagnostics','System Settings','preferences-system-symbolic','Capabilities, connection details, and credits')]
 
+
+PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-volume-low-symbolic',
+               'balanced':'power-profile-balanced-symbolic','balanced-performance':'power-profile-performance-symbolic',
+               'performance':'weather-storm-symbolic'}
 
 def button(text, callback, css='suggested-action'):
     widget=Gtk.Button(label=text,valign=Gtk.Align.CENTER)
@@ -73,7 +77,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.toast.set_child(split)
         sidebar=Adw.ToolbarView()
         header=Adw.HeaderBar(show_end_title_buttons=False)
-        header.set_title_widget(label('FEDORIZER','brand'))
+        header.set_title_widget(label('Fedorizer','brand'))
         sidebar.add_top_bar(header)
         sidebox=box(0)
         nav=Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
@@ -96,7 +100,7 @@ class MainWindow(Adw.ApplicationWindow):
         split.set_sidebar(Adw.NavigationPage.new(sidebar,'Acer Fedorizer'))
         content=Adw.ToolbarView()
         top=Adw.HeaderBar(show_start_title_buttons=False)
-        self.window_title=Adw.WindowTitle(title='Overview',subtitle='Acer Fedorizer')
+        self.window_title=Adw.WindowTitle(title='Dashboard',subtitle='Acer Fedorizer')
         top.set_title_widget(self.window_title)
         if self.demo: top.pack_start(label('Preview data','preview-badge'))
         menu=Gio.Menu()
@@ -139,11 +143,11 @@ class MainWindow(Adw.ApplicationWindow):
     def build_overview(self):
         page=self.pages['overview']
         hero=box(12); hero.add_css_class('hero')
-        line=box(12,True); heading=label('READY FOR YOUR NEXT SESSION','eyebrow'); heading.set_hexpand(True); line.append(heading)
+        line=box(12,True); heading=label('CURRENT PERFORMANCE PROFILE','eyebrow'); heading.set_hexpand(True); line.append(heading)
         self.ac_label=label('AC power','status-pill'); self.ac_label.set_hexpand(False); self.ac_label.set_halign(Gtk.Align.END); line.append(self.ac_label)
         hero.append(line)
         self.profile_hero=label('Balanced','hero-value'); hero.append(self.profile_hero)
-        hero.append(label('Stock kernel controls. Your hardware stays in charge.','dim-label'))
+        hero.append(label('Current profile reported by the platform driver.','dim-label'))
         page.append(hero)
         cards=box(16,True)
         cpu=box(12); cpu.add_css_class('metric-card'); cpu.set_hexpand(True)
@@ -173,18 +177,17 @@ class MainWindow(Adw.ApplicationWindow):
 
     def build_performance(self):
         page=self.pages['performance']
-        self.profile_group=Adw.PreferencesGroup(title='Power profile',description='Available profiles come from the stock Acer platform driver.')
-        self.profile_combo=Adw.ComboRow(title='Choose a profile',model=Gtk.StringList.new([]))
+        self.profile_group=Adw.PreferencesGroup(title='Performance Profiles',description='Select a performance profile, then apply it.')
+        self.profile_tiles=ModeTiles()
         self.profile_choices=[]
-        self.profile_group.add(self.profile_combo)
+        self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles))
         row=Adw.ActionRow(title='Current profile',subtitle='Changes made by the hardware button appear automatically.')
         self.current_profile=label('Unavailable','status-pill'); row.add_suffix(self.current_profile)
         row.add_suffix(button('Apply profile',self.apply_profile))
         self.profile_group.add(row); page.append(self.profile_group)
-        self.fan_group=Adw.PreferencesGroup(title='Cooling',description='Manual settings are drafts until applied. Failed writes restore automatic cooling.')
-        self.fan_mode=Adw.ComboRow(title='Choose a fan mode',model=Gtk.StringList.new(['Automatic','Maximum','Manual']))
-        self.fan_group.add(self.fan_mode)
-        self.fan_mode.connect('notify::selected',lambda *_: self.update_fan_sensitivity())
+        self.fan_group=Adw.PreferencesGroup(title='Fan Speed Control',description='Manual settings are drafts until applied. Failed writes restore automatic cooling.')
+        self.fan_mode=ModeTiles([('Auto','view-refresh-symbolic'),('Max','power-profile-performance-symbolic'),('Manual','preferences-system-symbolic')],changed=self.update_fan_sensitivity)
+        self.fan_group.add(Adw.PreferencesRow(child=self.fan_mode))
         self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan',45)
         self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
         row=Adw.ActionRow(title='Current cooling',subtitle='Reading firmware state…')
@@ -193,11 +196,11 @@ class MainWindow(Adw.ApplicationWindow):
         page.append(self.fan_group)
         self.extras=Adw.PreferencesGroup(title='Device options',description='Only controls exposed by the stock driver appear here.')
         self.extra_switches={}
-        for key,title in [('backlight_timeout','Keyboard backlight timeout'),('boot_animation_sound','Boot animation and sound'),('lcd_override','LCD overdrive')]:
+        for key,title in [('backlight_timeout','Backlight Timeout'),('boot_animation_sound','Boot Sound and Animation'),('lcd_override','LCD Override')]:
             row=Adw.SwitchRow(title=title)
             row.connect('notify::active',self.extra_toggled,key)
             self.extra_switches[key]=row; self.extras.add(row)
-        self.usb_combo=Adw.ComboRow(title='USB charging threshold',model=Gtk.StringList.new(['Off','10%','20%','30%']))
+        self.usb_combo=Adw.ComboRow(title='USB Power Delivery',model=Gtk.StringList.new(['Off','10%','20%','30%']))
         self.usb_combo.connect('notify::selected',self.usb_changed); self.extras.add(self.usb_combo)
         page.append(self.extras)
         self.update_fan_sensitivity()
@@ -245,7 +248,7 @@ class MainWindow(Adw.ApplicationWindow):
         bottom.append(self.effect_note)
         self.light_apply=button('Apply lighting',self.apply_lighting); bottom.append(self.light_apply); page.append(bottom)
         zones=Adw.PreferencesGroup()
-        self.zones=Adw.ExpanderRow(title='Four-zone static colors',subtitle='Paint four keyboard regions with independent static colors.')
+        self.zones=Adw.ExpanderRow(title='Zone Color Control',subtitle='Set a static color for each of the four keyboard zones.')
         self.zone_buttons=[]
         for i,color in enumerate(('5bbfbd','73a7d8','a691d9','d6a46e')):
             row=Adw.ActionRow(title=f'Zone {i+1}')
@@ -274,10 +277,10 @@ class MainWindow(Adw.ApplicationWindow):
         for key,title in [('health','Full-charge capacity'),('cycles','Charge cycles'),('model','Battery'),('manufacturer','Manufacturer')]:
             row,value=suffix_row(title,'—'); self.battery_labels[key]=value; health.add(row)
         page.append(health)
-        controls=Adw.PreferencesGroup(title='Battery care')
-        self.charge_limit=Adw.SwitchRow(title='Limit charging to 80%',subtitle='Reduce time at full charge when the laptop is usually plugged in.')
+        controls=Adw.PreferencesGroup(title='Battery controls')
+        self.charge_limit=Adw.SwitchRow(title='Battery Charge Limit',subtitle='Limit maximum battery charge to 80%.')
         self.charge_limit.connect('notify::active',self.charge_changed); controls.add(self.charge_limit)
-        self.calibration=Adw.ActionRow(title='Battery calibration',subtitle='Only available when the stock driver exposes calibration.')
+        self.calibration=Adw.ActionRow(title='Battery Calibration',subtitle='Only available when the stock driver exposes calibration.')
         self.calibration.add_suffix(button('Start',lambda *_: self.mutate('set_battery_calibration',dict(enabled=True))))
         self.calibration.add_suffix(button('Stop',lambda *_: self.mutate('set_battery_calibration',dict(enabled=False)),'flat'))
         controls.add(self.calibration); page.append(controls)
@@ -285,10 +288,10 @@ class MainWindow(Adw.ApplicationWindow):
     def build_display(self):
         page=self.pages['display']
         hero=box(12); hero.add_css_class('hero'); hero.append(label('BUILT-IN DISPLAY','eyebrow'))
-        hero.append(label('Colors, as intended','title-1'))
-        hero.append(label('Use your panel’s native SDR color space while preserving your monitor layout.','page-description')); page.append(hero)
+        hero.append(label('Native SDR color management','title-1'))
+        hero.append(label('Reduce oversaturated SDR colors on supported built-in displays.','page-description')); page.append(hero)
         group=Adw.PreferencesGroup(title='Color management')
-        self.display_switch=Adw.SwitchRow(title='Native SDR color',subtitle='Requires an active built-in panel with Mutter sdr-native support.')
+        self.display_switch=Adw.SwitchRow(title='Native SDR color management',subtitle='Requires an active built-in panel with Mutter sdr-native support.')
         self.display_switch.connect('notify::active',self.display_toggled); group.add(self.display_switch)
         row,self.display_connector=suffix_row('Built-in panel','Detecting…'); group.add(row)
         row,self.display_mode=suffix_row('Current color mode','—'); group.add(row); page.append(group)
@@ -368,8 +371,8 @@ class MainWindow(Adw.ApplicationWindow):
             current=profile.get('current','')
             if choices!=self.profile_choices:
                 self.profile_choices=choices
-                self.profile_combo.set_model(Gtk.StringList.new([PROFILES.get(v,v) for v in choices]))
-                if current in choices: self.profile_combo.set_selected(choices.index(current))
+                self.profile_tiles.set_choices([(PROFILES.get(v,v),PROFILE_ICONS.get(v,'preferences-system-symbolic')) for v in choices])
+                if current in choices: self.profile_tiles.set_selected(choices.index(current))
             self.current_profile.set_text(PROFILES.get(current,current or 'Unavailable'))
             self.profile_hero.set_text(PROFILES.get(current,current or 'Monitoring'))
             ac=state.get('ac_online')
@@ -464,7 +467,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.async_call(lambda:self.client.command(command,params),done)
 
     def apply_profile(self,*_):
-        index=self.profile_combo.get_selected()
+        index=self.profile_tiles.get_selected()
         if index<len(self.profile_choices): self.mutate('set_thermal_profile',dict(profile=self.profile_choices[index]))
     def update_fan_sensitivity(self):
         if not hasattr(self,'cpu_slider'): return
@@ -613,8 +616,8 @@ class KeyEditor(Adw.Window):
         toolbar.add_top_bar(header)
         content=box(20)
         for setter in (content.set_margin_start,content.set_margin_end,content.set_margin_top,content.set_margin_bottom): setter(28)
-        content.append(label('Paint your keyboard','page-heading'))
-        content.append(label('Select keys, choose a color, then apply the complete static layout.','page-description'))
+        content.append(label('Per-key lighting','page-heading'))
+        content.append(label('Select keys, set their colors, then apply the static layout.','page-description'))
         self.canvas=KeyboardCanvas(250); self.canvas.set_layout(layout['lamps'],self.colors)
         self.canvas.add_css_class('keyboard-card'); content.append(self.canvas)
         controls=box(12,True)
@@ -623,7 +626,7 @@ class KeyEditor(Adw.Window):
         self.selection=label('No keys selected','dim-label'); self.selection.set_hexpand(True); controls.append(self.selection)
         self.picker=Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(),rgba=color_rgba('dfb678'))
         controls.append(self.picker)
-        controls.append(button('Paint selection',self.paint))
+        controls.append(button('Set selected color',self.paint))
         content.append(controls)
         self.canvas.on_selection=lambda count:self.selection.set_text(f'{count} keys selected' if count else 'No keys selected')
         row=box(12,True); row.append(label('Brightness','dim-label'))

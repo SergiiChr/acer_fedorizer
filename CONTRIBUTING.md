@@ -39,7 +39,7 @@ scripts/package.sh
 UI checks require a graphical display; CI uses Xvfb and a private D-Bus session.
 Tests use temporary sysfs trees, fake system/package commands, and local sockets.
 They do not install the app or change firmware. UI smoke tests check real widget
-navigation, draft independence, refresh preservation, palette restrictions, and
+navigation, profile-name/hardware mappings, single-selection mode tiles, fan-slider sensitivity, draft independence, refresh preservation, palette restrictions, and
 no startup writes. Preview screenshots are actual GTK renders, visibly labelled.
 
 No polling may overwrite editing drafts or apply a setting automatically. Worker

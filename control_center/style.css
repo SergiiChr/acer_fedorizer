@@ -17,3 +17,8 @@ window { font-family: "Adwaita Sans", "Cantarell", sans-serif; }
 .core-pill { background: alpha(@window_fg_color,.06); border-radius: 8px; padding: 8px 10px; font-size: 11px; }
 .preview-badge { color: #e5b567; background: alpha(#e5b567,.12); padding: 4px 10px; border-radius: 16px; font-size: 11px; }
 .sidebar-footer { padding: 16px 24px; font-size: 11px; color: @dim_label_color; }
+
+.mode-tile { min-width: 90px; min-height: 100px; padding: 16px 10px; border-radius: 12px; border: 2px solid transparent; background: @card_bg_color; }
+.mode-tile:checked { background: alpha(@accent_color, .16); border-color: @accent_color; color: @accent_color; }
+.mode-tile:hover { background: alpha(@accent_color, .09); }
+.mode-tile:focus-visible { outline: 2px solid @accent_color; outline-offset: 2px; }

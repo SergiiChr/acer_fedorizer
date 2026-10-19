@@ -41,10 +41,10 @@ the distribution's DKMS signing key before the rear lightbar module loads.
 
 ## Screens and behavior
 
-- **Overview:** CPU usage/temperature, memory, physical-core frequencies, and
+- **Dashboard:** CPU usage/temperature, memory, physical-core frequencies, and
   optional NVIDIA temperature, VRAM, and board power. GPU monitoring starts off;
   enabling it may wake the discrete GPU. Sampling stops when the GUI closes.
-- **Performance:** detected stock-driver profiles and fan modes, with RPM and
+- **Power & Performance:** detected stock-driver profiles and fan modes, with RPM and
   an explicit Apply action. Fan write failures restore automatic cooling.
 - **Lighting:** independent device drafts, firmware effects, linked WASD,
   coordinated all-lights settings, four-zone colors, and per-key static editing
@@ -54,7 +54,7 @@ the distribution's DKMS signing key before the rear lightbar module loads.
   charge/calibration controls actually exposed by the driver.
 - **Display:** persistent Native SDR color management on a supported active
   built-in Mutter panel; preserves monitor configuration and is disabled with HDR.
-- **System:** detected capabilities, connection details, and licenses/credits.
+- **System Settings:** detected capabilities, connection details, and licenses/credits.
 
 The lightweight Python hardware service stays running after the window closes,
 waiting for commands and the Predator button. It does not run dashboard or GPU
@@ -65,11 +65,11 @@ monitoring. Existing hardware settings are not reset by closing the window.
 These are screenshots of actual GTK widgets with explicitly labelled preview
 data, not claims of live hardware measurements.
 
-![Overview](docs/screenshots/overview.png)
+![Dashboard](docs/screenshots/overview.png)
 ![Lighting](docs/screenshots/lighting.png)
 
-[Performance](docs/screenshots/performance.png) · [Battery](docs/screenshots/battery.png) ·
-[Display](docs/screenshots/display.png) · [System](docs/screenshots/diagnostics.png) ·
+[Power & Performance](docs/screenshots/performance.png) · [Battery](docs/screenshots/battery.png) ·
+[Display](docs/screenshots/display.png) · [System Settings](docs/screenshots/diagnostics.png) ·
 [Per-key editor](docs/screenshots/keyboard.png)
 
 ```sh

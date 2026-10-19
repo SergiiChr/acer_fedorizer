@@ -26,6 +26,44 @@ def hex_rgba(rgba):
     return ''.join(f'{round(max(0,min(1,v))*255):02x}' for v in (rgba.red,rgba.green,rgba.blue))
 
 
+class ModeTiles(Gtk.FlowBox):
+    """Single-selection icon tiles; selections remain drafts until explicitly applied."""
+    def __init__(self, choices=(), changed=None):
+        super().__init__(selection_mode=Gtk.SelectionMode.NONE,homogeneous=True,
+                         min_children_per_line=1,max_children_per_line=5,
+                         row_spacing=10,column_spacing=10)
+        self.buttons=[]; self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
+        self.set_choices(choices)
+
+    def set_choices(self, choices):
+        while self.get_first_child(): self.remove(self.get_first_child())
+        self.buttons=[]; self.selected=Gtk.INVALID_LIST_POSITION
+        for index,(title,icon) in enumerate(choices):
+            tile=Gtk.ToggleButton(hexpand=True)
+            tile.add_css_class('mode-tile')
+            tile.set_tooltip_text(title)
+            tile.update_property([Gtk.AccessibleProperty.LABEL],[title])
+            content=box(10)
+            image=Gtk.Image.new_from_icon_name(icon); image.set_pixel_size(40)
+            content.append(image)
+            content.append(label(title,xalign=.5))
+            tile.set_child(content)
+            tile.connect('clicked',lambda _,i=index:self.choose(i))
+            self.buttons.append(tile); self.append(tile)
+        if self.buttons: self.set_selected(0)
+
+    def choose(self, index):
+        self.set_selected(index)
+        if self.changed: self.changed()
+
+    def set_selected(self, index):
+        self.selected=index if 0<=index<len(self.buttons) else Gtk.INVALID_LIST_POSITION
+        for i,tile in enumerate(self.buttons): tile.set_active(i==self.selected)
+
+    def get_selected(self):
+        return self.selected
+
+
 class HistoryChart(Gtk.DrawingArea):
     def __init__(self, color=(.36,.75,.74), height=90):
         super().__init__(content_height=height,hexpand=True)
