@@ -5,50 +5,57 @@ Predator PH16-72. This edition uses stock `acer_wmi` and direct USB HID. An
 optional DKMS module controls the rear lightbar. Other models are unverified;
 see [Compatibility.md](Compatibility.md).
 
-## Install
+## Setup
 
-From the source checkout or an extracted binary archive, run as your desktop user:
+From the downloaded source folder or extracted binary archive, run:
 
 ```sh
-./setup.sh
-DAMX
+./setup.sh install
 ```
 
-The script installs OS dependencies, builds the self-contained GUI when needed,
-installs the daemon and desktop launcher, and includes the rear lightbar bridge
-on PH16-72. It requests sudo for system changes. A binary archive needs no .NET
-SDK. Source builds require network access for NuGet restoration and a .NET SDK;
-the script installs .NET 8 when its SDK is unavailable. `DAMX_DOTNET` can select an
-existing SDK executable.
+Setup installs all dependencies and the complete app. It automatically handles
+source builds, desktop integration, and the PH16-72 rear lightbar driver.
+Run it as your desktop user; it requests sudo for system changes.
+
+There are four commands:
+
+| Command | What it does |
+| --- | --- |
+| `./setup.sh install` | Install a fresh copy, or completely overwrite an existing installation. |
+| `./setup.sh uninstall` | Completely remove the app, saved settings, backups, and lightbar driver. |
+| `./setup.sh status` | Check the app, daemon, socket connection, and lightbar installation without changing anything. |
+| `./setup.sh help` | Explain these commands. |
+
+If an installation or leftover files are detected, install asks:
+`This will completely overwrite your installation. Proceed? [y/n]`
+Only `y` continues; any other answer or end of input cancels before any changes.
+Overwrite resets saved lighting settings and removes old installation backups.
+Source downloads always rebuild, so old local build output cannot silently win.
+Binary archives use their included application and need no .NET SDK.
+Setup removes compiler intermediates, Python caches, and local module build
+leftovers on success or failure. Source installs also remove the temporary
+published GUI after copying it into place. Binary archives retain their included
+GUI so they can be used again. Release archives and license notices are retained.
+
+When setup succeeds, open **DAMX** from the applications menu or run `DAMX`.
+If setup fails, run `./setup.sh status` for a readable diagnosis and repair
+instructions. Repeating install replaces existing DKMS registrations rather
+than trying to add the same module twice.
 
 Automatic dependencies support Fedora, Ubuntu 24.04, and Debian 12/13 on Linux
-x86_64 with systemd. Debian source setup adds Microsoft's package feed when an
-SDK is missing. Other distributions require equivalent dependencies and
-`--no-deps`. Package-manager availability does not imply hardware compatibility.
-Dependencies include Python 3, fontconfig/FreeType, X11/GL libraries, .NET native
-runtime libraries, and PyGObject. The bridge also needs DKMS, a C compiler,
-make, and headers matching the running kernel. Secure Boot may require enrolling
-the distribution's DKMS signing key before the module can load.
+x86_64 with systemd. Other distributions are currently unsupported by setup.
+Package-manager support does not imply hardware compatibility. Stock
+`acer_wmi` must remain enabled. Secure Boot can require enrolling the
+distribution's DKMS signing key before a newly built module will load.
 
-```sh
-./setup.sh --without-lightbar       # core controls only
-./setup.sh --build                  # dependencies and build, no app installation
-./setup.sh --build --no-deps        # build using existing dependencies
-./setup.sh --no-deps                # install using existing dependencies
-./setup.sh --uninstall              # remove service and launchers
-./setup.sh --help
-```
-
-Installation uses `/opt/damx`, keeps one GUI/daemon rollback copy at
-`/opt/damx.previous`, and saves lighting state in `/var/lib/damx/lighting.json`.
-The root daemon exposes `/run/DAMX.sock` to the installing desktop user and
-restricted `damx` group. Stock `acer_wmi` must be enabled; remove any conflicting
-third-party hardware driver before installation. Updates reuse a bundled GUI;
-run `./setup.sh --build` first after changing source.
-
-Uninstall retains app files, state, group, and the separate DKMS bridge for
-recovery. See [FAQ.md](FAQ.md) for bridge removal and troubleshooting. Low-level
-helpers remain in `scripts/`; ordinary installation uses `setup.sh`.
+Installation uses `/opt/damx`; lighting state is in
+`/var/lib/damx/lighting.json`. The root daemon exposes `/run/DAMX.sock` to the
+installing desktop user and restricted `damx` group. Uninstall removes all of
+these, desktop integration, prior app backups, and DAMX module sources and
+registrations across kernels. Shared OS dependencies (including SDK/compiler
+packages) and the downloaded source folder remain, since other software can use
+them. Desktop display preferences already applied through Mutter remain desktop
+preferences. See [FAQ.md](FAQ.md) for troubleshooting.
 
 ## Controls and limits
 
@@ -83,7 +90,7 @@ findings and validation limits are in [REVIEW.md](REVIEW.md).
 ```sh
 python3 -m unittest discover -s tests -v
 dotnet run --project tests/client-tests/ClientTests.csproj -c Release
-./setup.sh --build --no-deps
+scripts/local-setup.sh --build
 scripts/package.sh
 ```
 

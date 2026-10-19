@@ -44,7 +44,7 @@ Run from the repository root:
 bash -n setup.sh scripts/*.sh
 python3 -m unittest discover -s tests -v
 dotnet run --project tests/client-tests/ClientTests.csproj -c Release
-./setup.sh --build --no-deps
+scripts/local-setup.sh --build
 scripts/package.sh
 ```
 

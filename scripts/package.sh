@@ -12,6 +12,7 @@ mkdir -p -- "$(dirname -- "$OUTPUT")"
 tar --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' --exclude='*.cmd' --exclude='*.mod*' --exclude='Module.symvers' --exclude='modules.order' -czf "$OUTPUT" -C "$REPO_DIR" \
     publish/native DAMM-Daemon native-lightbar \
     setup.sh scripts/local-setup.sh scripts/install-lightbar.sh scripts/native-selftest.py \
+    scripts/setup-common.sh scripts/install-dependencies.sh scripts/install-status.sh scripts/clean-build.sh \
     DivAcerManagerMax/icon.png AGENTS.md CONTRIBUTING.md REVIEW.md README.md FAQ.md Compatibility.md NATIVE-CONTROLS.md LICENSE NOTICE.md THIRD-PARTY-NOTICES.md LICENSES
 SOURCE_OUTPUT="${OUTPUT%.tar.gz}-source.tar.gz"
 tar --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' --exclude='*.cmd' --exclude='*.mod*' --exclude='Module.symvers' --exclude='modules.order' -czf "$SOURCE_OUTPUT" -C "$REPO_DIR" \

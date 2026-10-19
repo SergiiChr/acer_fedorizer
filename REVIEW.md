@@ -1,9 +1,50 @@
-# Application review — 17 October 2026
+# Application review — 19 October 2026
 
 Scope: current native PH16-72 source, installer/build flow, release contents,
 agent guidance, and attribution. Existing uncommitted native implementation
 changes were preserved. Hardware observations in NATIVE-CONTROLS.md are prior
 observations, not tests performed by this review.
+
+## Automatic build cleanup
+
+Setup and build helpers now remove .NET compiler intermediates, Python caches,
+and local kernel-module build leftovers on success and failure. Source setup
+also removes its generated published GUI after installation; binary archives
+retain their shipped GUI for reuse. Developer builds retain `publish/native`
+for packaging. Cancellation and read-only commands do not clean the checkout.
+Ignore rules cover release output, SDK caches, test reports, and native/.NET
+binaries. License inventories and required redistribution notices remain source.
+
+Validation: 55 Python tests and the C# regression suite passed. A real GUI
+publish succeeded, and subsequent checks confirmed intermediate directories were
+removed while the published app remained. Existing compiler warnings remain.
+
+## Setup lifecycle update — 19 October 2026
+
+The public interface is now `install`, `uninstall`, `status`, and `help`.
+No component, dependency, or build flags are exposed to users. Install always
+installs the required OS packages and rebuilds source checkouts. Existing app
+files, saved state, backups, or module registrations trigger the explicit
+`This will completely overwrite your installation. Proceed? [y/n]` prompt.
+Declining or closing input makes no changes. Dependency/build failures occur
+before the old application is removed. A complete staged replacement removes
+stale daemon and GUI files rather than merging directories.
+
+DKMS detection no longer pipes `status` into `grep -q` under `pipefail`.
+Existing registrations are removed directly before add, including other versions.
+Broken registration metadata and this module's orphaned kernel files are cleaned
+up. Uninstall removes app state, backups, group, integration, module registrations,
+module sources, and module files; shared OS packages and source checkout remain.
+Status is read-only and checks a bounded daemon ping as well as service/files and
+lightbar registration for the running kernel.
+
+Validation: all 51 Python tests pass. The installer tests use a temporary system
+tree and fake package/system tools, including a large multi-kernel DKMS response.
+Shell syntax and release archive layout/checksums were checked. Live app removal,
+service replacement, and module changes were not run. Application C# sources are unchanged by this setup update; build and C# checks
+were subsequently repeated for the automatic-cleanup change above.
+
+The earlier application review and its validation history follow below.
 
 ## Addressed
 
