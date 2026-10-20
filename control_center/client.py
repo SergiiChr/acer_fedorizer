@@ -5,6 +5,9 @@ import os
 import socket
 import threading
 
+# Safe to repeat: they never change hardware state.
+READ_COMMANDS = frozenset({'ping', 'get_all_settings', 'get_keyboard_layout'})
+
 
 class ControlClient:
     def __init__(self, path=None, timeout=5):
@@ -15,40 +18,51 @@ class ControlClient:
         self._closed = False
 
     def command(self, command, params=None):
-        payload = json.dumps(dict(command=command, params=params or {})).encode() + b'\n'
+        payload = json.dumps({'command': command, 'params': params or {}}).encode() + b'\n'
         if len(payload) > 65536:
             raise ValueError('Request exceeds framing limit')
         with self._lock:
             if self._closed:
                 raise RuntimeError('Client is closed')
+            # The service closes idle connections and restarts drop them, so a reused socket can be stale.
+            # Reads are retried once on a fresh connection; writes are never sent twice.
+            retry = command in READ_COMMANDS and self._socket is not None
             try:
-                if self._socket is None:
-                    self._socket = socket.socket(socket.AF_UNIX)
-                    self._socket.settimeout(self.timeout)
-                    self._socket.connect(self.path)
-                self._socket.sendall(payload)
-                result = bytearray()
-                while True:
-                    chunk = self._socket.recv(4096)
-                    if not chunk:
-                        raise ConnectionError('Hardware service disconnected')
-                    result.extend(chunk)
-                    if len(result) > 262144:
-                        raise ValueError('Response exceeds framing limit')
-                    if b'\n' not in chunk:
-                        continue
-                    line, remainder = bytes(result).split(b'\n', 1)
-                    if remainder:
-                        raise ValueError('Unexpected data after response')
-                    response = json.loads(line)
-                    if not isinstance(response, dict) or not isinstance(response.get('success'), bool):
-                        raise ValueError('Invalid hardware service response')
-                    if not response['success']:
-                        raise RuntimeError(str(response.get('error', 'Command failed')))
-                    return response.get('data', {})
-            except Exception:
-                self._disconnect()
-                raise
+                return self._exchange(payload)
+            except ConnectionError:
+                if not retry:
+                    raise
+            return self._exchange(payload)
+
+    def _exchange(self, payload):
+        try:
+            if self._socket is None:
+                self._socket = socket.socket(socket.AF_UNIX)
+                self._socket.settimeout(self.timeout)
+                self._socket.connect(self.path)
+            self._socket.sendall(payload)
+            result = bytearray()
+            while True:
+                chunk = self._socket.recv(4096)
+                if not chunk:
+                    raise ConnectionError('Hardware service disconnected')
+                result.extend(chunk)
+                if len(result) > 262144:
+                    raise ValueError('Response exceeds framing limit')
+                if b'\n' in chunk:
+                    break
+            line, remainder = bytes(result).split(b'\n', 1)
+            if remainder:
+                raise ValueError('Unexpected data after response')
+            response = json.loads(line)
+            if not isinstance(response, dict) or not isinstance(response.get('success'), bool):
+                raise ValueError('Invalid hardware service response')
+            if not response['success']:
+                raise RuntimeError(str(response.get('error', 'Command failed')))
+            return response.get('data', {})
+        except Exception:
+            self._disconnect()
+            raise
 
     def _disconnect(self):
         if self._socket is not None:

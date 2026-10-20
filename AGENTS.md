@@ -45,6 +45,7 @@ Do not leave pending privileged operations running after work is stopped.
 
 ```sh
 bash -n setup.sh run.sh scripts/*.sh
+ruff check .
 python3 -m unittest discover -s tests -v
 GSK_RENDERER=cairo python3 scripts/ui-smoke.py
 GSK_RENDERER=cairo ./run.sh --screenshots docs/screenshots

@@ -51,13 +51,17 @@ the distribution's DKMS signing key before the rear lightbar module loads.
 
 - **Dashboard:** CPU usage/temperature, memory, physical-core frequencies, and
   optional NVIDIA temperature, VRAM, and board power. GPU monitoring starts off;
-  enabling it may wake the discrete GPU. Sampling stops when the GUI closes.
+  enabling it may wake the discrete GPU. Sampling pauses while the window is
+  minimized and stops when the GUI closes.
 - **Power & Performance:** detected stock-driver profiles and fan modes, with RPM and
-  an explicit Apply action. Fan write failures restore automatic cooling.
+  an explicit Apply action. Fan write failures and every service stop, including a
+  crash, restore automatic cooling.
 - **Lighting:** independent device drafts, firmware effects, linked WASD,
-  coordinated all-lights settings, four-zone colors, and per-key static editing
-  using the keyboard's reported LED geometry. Lighting is last successful
-  command state, not hardware readback; firmware Wave animations are independent.
+  coordinated all-lights settings, four-zone colors as a keyboard choice, and per-key
+  static editing using the keyboard's reported LED geometry. One Apply button applies
+  the selected device. Lighting is last successful command state, not hardware readback;
+  the service replays it at start, after sleep, and when a lighting device reconnects.
+  Firmware Wave animations are independent.
 - **Battery:** charge, time estimates when available, health/cycles, and only
   charge/calibration controls actually exposed by the driver.
 - **Display:** persistent Native SDR color management on a supported active

@@ -66,20 +66,17 @@ static ssize_t effect_store(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_WO(color);
 static DEVICE_ATTR_WO(effect);
 
+static struct attribute *lightbar_attrs[] = {
+    &dev_attr_color.attr,
+    &dev_attr_effect.attr,
+    NULL
+};
+ATTRIBUTE_GROUPS(lightbar);
+
+/* The driver core creates the attributes before the bind uevent, so udev never sees a partial device. */
 static int lightbar_probe(struct wmi_device *wdev, const void *context)
 {
-    if (!dmi_match(DMI_PRODUCT_NAME, "Predator PH16-72"))
-        return -ENODEV;
-    int ret = device_create_file(&wdev->dev, &dev_attr_color);
-    if (ret) return ret;
-    ret = device_create_file(&wdev->dev, &dev_attr_effect);
-    if (ret) device_remove_file(&wdev->dev, &dev_attr_color);
-    return ret;
-}
-static void lightbar_remove(struct wmi_device *wdev)
-{
-    device_remove_file(&wdev->dev, &dev_attr_color);
-    device_remove_file(&wdev->dev, &dev_attr_effect);
+    return dmi_match(DMI_PRODUCT_NAME, "Predator PH16-72") ? 0 : -ENODEV;
 }
 static const struct wmi_device_id lightbar_ids[] = {
     {"7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56", NULL},
@@ -87,10 +84,12 @@ static const struct wmi_device_id lightbar_ids[] = {
 };
 MODULE_DEVICE_TABLE(wmi, lightbar_ids);
 static struct wmi_driver lightbar_driver = {
-    .driver = {.name = "laptop-lightbar"},
+    .driver = {
+        .name = "laptop-lightbar",
+        .dev_groups = lightbar_groups,
+    },
     .id_table = lightbar_ids,
     .probe = lightbar_probe,
-    .remove = lightbar_remove,
 };
 module_wmi_driver(lightbar_driver);
 MODULE_LICENSE("GPL");

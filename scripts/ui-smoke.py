@@ -3,9 +3,13 @@
 """Exercise actual GTK widgets with preview services; no hardware access."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from control_center.app import Application
 from gi.repository import GLib
+
+from control_center.app import Application
+from control_center.models import ZONE_MODE
+from control_center.widgets import color_rgba
 
 app=Application(demo=True)
 failures=[]
@@ -78,7 +82,7 @@ def checks():
         assert 'independently' in window.effect_note.get_text()
         window.color_entry.set_text('invalid')
         window.capture_draft()
-        window.drafts['keyboard'].params('keyboard')
+        window.drafts['keyboard'].request('keyboard')
         window.color_entry.set_text('#FF2300')
         assert not any(command.startswith('set_') for command,_ in window.client.commands),'Draft editing wrote hardware'
         window.open_editor()
@@ -90,7 +94,7 @@ def checks():
         window.effect_combo.set_selected(window.effect_ids.index(3))
         assert window.color_entry.get_sensitive(),'WASD Wave color is incorrectly disabled'
         window.color_entry.set_text('#EE4400'); window.capture_draft()
-        assert window.drafts['wasd'].params('wasd')['color']=='ee4400'
+        assert window.drafts['wasd'].request('wasd')[1]['color']=='ee4400'
         window.target_combo.set_selected(window.targets.index('keyboard'))
         window.effect_combo.set_selected(window.effect_ids.index(0))
         window.apply_lighting()
@@ -135,7 +139,6 @@ def check_key_brightness():
     window.client.state['lighting_state']['per_key']={'colors':saved.copy(),'brightness':20}
     window.receive_state(window.client.command('get_all_settings'),None)
     window.open_editor()
-    from control_center.widgets import color_rgba
     window.editor.canvas.selected={window.layout['lamps'][0]['id']}
     window.editor.picker.set_rgba(color_rgba('445566')); window.editor.paint()
     window.editor.submit()
@@ -156,7 +159,36 @@ def verify_key_brightness():
         assert window.editor.brightness.get_value()==20,'Saved brightness not restored after Apply'
         assert window.editor.colors[first]=='445566'
         window.editor.close()
-        print('PASS: per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, and no startup writes',flush=True)
+        check_zones()
+        return False
+    except Exception as error:
+        failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
+    app.window.close(); app.quit()
+    return False
+
+
+def check_zones():
+    window=app.window
+    assert window.light_apply.get_visible() and not hasattr(window,'header_apply'),'Lighting has more than one Apply button'
+    window.target_combo.set_selected(window.targets.index('keyboard'))
+    window.effect_combo.set_selected(window.effect_ids.index(ZONE_MODE))
+    assert all(row.get_visible() for row in window.zone_rows),'Zone colors hidden'
+    assert not window.brightness_row.get_visible() and not window.color_row.get_visible(),'Zone mode shows effect controls'
+    window.zone_buttons[1].set_rgba(color_rgba('102030'))
+    window.apply_lighting()
+    GLib.timeout_add(250,verify_zones)
+
+
+def verify_zones():
+    try:
+        window=app.window
+        calls=[params for command,params in window.client.commands if command=='set_per_zone_mode']
+        assert len(calls)==1 and calls[0]['zone2']=='102030','Zones were not applied'
+        assert set(calls[0])=={'zone1','zone2','zone3','zone4'},'Zones sent extra settings'
+        window.receive_state(window.client.command('get_all_settings'),None)
+        window.drafts.clear(); window.load_draft()
+        assert window.effect_ids[window.effect_combo.get_selected()]==ZONE_MODE,'Saved zones not loaded'
+        print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, and no startup writes',flush=True)
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()

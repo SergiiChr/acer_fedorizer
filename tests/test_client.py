@@ -5,10 +5,11 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
+
 from control_center.client import ControlClient
-from control_center.models import LightingDraft, full_key_map
-from control_center.telemetry import gpu_fields, Telemetry
-from unittest.mock import patch
+from control_center.models import ZONE_MODE, LightingDraft, full_key_map
+from control_center.telemetry import Telemetry, gpu_fields
 
 
 class ClientTests(unittest.TestCase):
@@ -28,7 +29,7 @@ class ClientTests(unittest.TestCase):
         def handler(client,stream):
             for _ in range(4):
                 request=json.loads(stream.readline())
-                response=json.dumps(dict(success=True,data={'command':request['command'],'value':'x'*12000})).encode()+b'\n'
+                response=json.dumps({'success': True,'data': {'command':request['command'],'value':'x'*12000}}).encode()+b'\n'
                 for i in range(0,len(response),79): client.sendall(response[i:i+79])
         server=self.serve(handler)
         client=ControlClient(self.path)
@@ -50,16 +51,40 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'closed'): client.command('third')
     def test_malformed_and_oversized_responses_are_rejected(self):
         for response in (b'{"data":{}}\n', b'x'*262145+b'\n'):
-            worker=self.serve(lambda c,s:(s.readline(),c.sendall(response)))
+            worker=self.serve(lambda c,s,response=response:(s.readline(),c.sendall(response)))
             client=ControlClient(self.path)
             with self.assertRaises(ValueError): client.command('read')
             client.close(); worker.join(3)
+    def test_stale_connection_retries_reads_but_never_writes(self):
+        def drop_after_first(client,stream):
+            stream.readline(); client.sendall(b'{"success":true,"data":{"n":1}}\n')
+        def answer(client,stream):
+            stream.readline(); client.sendall(b'{"success":true,"data":{"n":2}}\n')
+        for command,retried in (('get_all_settings',True),('set_fan_speed',False)):
+            client=ControlClient(self.path)
+            worker=self.serve(drop_after_first)
+            client.command(command)
+            worker.join(3)  # The server side of this connection is now closed.
+            worker=self.serve(answer)
+            if retried: self.assertEqual(client.command(command),{'n':2})
+            else:
+                with self.assertRaises(ConnectionError): client.command(command)
+                self.assertEqual(client.command(command),{'n':2})
+            worker.join(3); client.close()
     def test_request_bound_checked_before_connection(self):
         client=ControlClient('/no/such/socket')
         with self.assertRaisesRegex(ValueError,'framing'): client.command('write',{'color':'x'*65536})
 
 
 class ModelTests(unittest.TestCase):
+    def test_zone_drafts_load_saved_colors_and_send_no_brightness(self):
+        modes=[0,1,ZONE_MODE]
+        draft=LightingDraft.from_state({'kind':'zones','colors':['ff0000','00ff00','0000ff','FFFFFF']},modes)
+        self.assertEqual(draft.mode,ZONE_MODE)
+        self.assertEqual(draft.request('keyboard'),('set_per_zone_mode',{'zone1':'ff0000','zone2':'00ff00','zone3':'0000ff','zone4':'ffffff'}))
+        self.assertEqual(LightingDraft.from_state({'kind':'zones','colors':['ff0000']*4},[0,1]).mode,0)
+        command,params=LightingDraft().request('logo')
+        self.assertEqual(command,'set_lighting'); self.assertNotIn('zones',params)
     def test_drafts_reject_invalid_colors_and_do_not_share_state(self):
         a=LightingDraft.from_state({'mode':3,'speed':999,'brightness':-5,'direction':7,'color':'invalid'},[0,1])
         b=LightingDraft.from_state({},[0,1])
@@ -67,9 +92,9 @@ class ModelTests(unittest.TestCase):
         a.color='ff0000'
         self.assertNotEqual(a.color,b.color)
         a.color='bad'
-        with self.assertRaises(ValueError): a.params('keyboard')
+        with self.assertRaises(ValueError): a.request('keyboard')
     def test_key_maps_include_only_programmable_lamps(self):
-        lamps=[dict(id=0,programmable=True),dict(id=1,programmable=False),dict(id=2,programmable=True)]
+        lamps=[{'id': 0,'programmable': True},{'id': 1,'programmable': False},{'id': 2,'programmable': True}]
         self.assertEqual(full_key_map(lamps,{'0':'#FF0000'}),{'0':'ff0000','2':'5bbfbd'})
     def test_gpu_prefers_average_and_rejects_observed_invalid_power(self):
         self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405')['power'],5)
@@ -79,6 +104,26 @@ class ModelTests(unittest.TestCase):
     def test_paused_telemetry_never_starts_nvidia_process(self):
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=AssertionError('GPU was queried')):
             self.assertIsNone(Telemetry(tmp,tmp).sample(False)['gpu'])
+    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self):
+        output='40,2,100,12000,5,5,175,200,405\n'
+        def run(args,**_):
+            return Mock(returncode=0 if 'power.draw.average' not in args[1] else 2,stdout=output)
+        with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=run) as process:
+            telemetry=Telemetry(tmp,tmp)
+            self.assertEqual(telemetry.gpu()['temperature'],40)
+            self.assertEqual(process.call_count,2)
+            telemetry.gpu()
+            self.assertEqual(process.call_count,3)
+    def test_cpu_usage_ignores_samples_across_a_long_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stat=Path(tmp)/'stat'
+            telemetry=Telemetry(tmp,tmp)
+            with patch('control_center.telemetry.time.monotonic',side_effect=[0,2,10]):
+                for line in ('cpu 10 0 10 80 0 0 0 0','cpu 20 0 20 160 0 0 0 0','cpu 30 0 30 240 0 0 0 0'):
+                    stat.write_text(line+'\n')
+                    usage=telemetry.sample()['cpu_usage']
+                    if line.startswith('cpu 20'): self.assertAlmostEqual(usage,20)
+            self.assertIsNone(usage)
     def test_battery_estimate_uses_consistent_units(self):
         with tempfile.TemporaryDirectory() as tmp:
             battery=Path(tmp)/'class/power_supply/BAT0'; battery.mkdir(parents=True)

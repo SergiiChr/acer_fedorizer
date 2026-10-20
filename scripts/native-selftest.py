@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hardware.controls import NativeControls
 
@@ -22,20 +23,20 @@ def inspect_and_exercise(args, state_file):
         return
     commands = [('set_thermal_profile', {'profile': controls.settings()['thermal_profile']['current']}),
                 ('set_fan_speed', {'cpu': 0, 'gpu': 0}),
-                ('set_four_zone_mode', {'mode': 1, 'speed': 5, 'brightness': 80,
-                                       'direction': 1, 'red': 0, 'green': 80, 'blue': 255}),
-                ('set_logo_color', {'red': 0, 'green': 80, 'blue': 255, 'brightness': 80})]
+                ('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': '0050ff', 'brightness': 80,
+                                  'link_wasd': False}),
+                ('set_lighting', {'target': 'logo', 'mode': 0, 'color': '0050ff', 'brightness': 80})]
     if 'lightbar' in controls.features:
-        commands.append(('set_light_color', {'target': 'lightbar', 'red': 0, 'green': 80, 'blue': 255, 'brightness': 80}))
+        commands.append(('set_lighting', {'target': 'lightbar', 'mode': 0, 'color': '0050ff', 'brightness': 80}))
     failed = False
     for name, params in commands:
         try:
             controls.command(name, params)
             print('ACCEPTED:', name, flush=True)
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             failed = True
             print('FAILED:', name, str(e), flush=True)
-    print('Light bar:', controls.settings()['lightbar_status'])
+    print('Light bar:', 'available' if 'lightbar' in controls.features else 'no direct interface detected')
     if failed:
         sys.exit(1)
 

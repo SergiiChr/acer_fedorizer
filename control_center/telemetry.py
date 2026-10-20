@@ -1,8 +1,18 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Read-only Linux sampling. NVIDIA is queried only on explicit opt-in."""
 import math
-from pathlib import Path
 import subprocess
+import time
+from pathlib import Path
+
+# Newer drivers report average and instant power; older ones only power.draw.
+GPU_QUERIES = (
+    ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw.average,power.draw.instant,'
+     'power.max_limit,clocks.gr,clocks.mem'),
+    ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.draw,'
+     'power.max_limit,clocks.gr,clocks.mem'))
+# A longer gap between CPU samples would average over time the dashboard was not shown.
+MAX_SAMPLE_GAP = 5.0
 
 
 def text(path, default=''):
@@ -27,8 +37,8 @@ def gpu_fields(output):
     temp, usage, used, total, average, instant, maximum, core, memory = map(number, values)
     bound = maximum * 1.15 if maximum and maximum > 0 else 500
     power = next((v for v in (average, instant) if v is not None and v <= bound), None)
-    return dict(temperature=temp, usage=usage, memory_used=used, memory_total=total,
-                power=power, core=core, memory_clock=memory)
+    return {'temperature': temp, 'usage': usage, 'memory_used': used, 'memory_total': total,
+                'power': power, 'core': core, 'memory_clock': memory}
 
 
 class Telemetry:
@@ -36,17 +46,18 @@ class Telemetry:
         self.sys = Path(sys_root)
         self.proc = Path(proc_root)
         self.previous = None
+        self.gpu_queries = GPU_QUERIES
 
     def sample(self, gpu=False):
-        result = dict(cpu_usage=None, cpu_temperature=None, memory_used=None,
-                      memory_total=None, cores=[], gpu=None, battery={})
+        result = {'cpu_usage': None, 'cpu_temperature': None, 'memory_used': None,
+                      'memory_total': None, 'cores': [], 'gpu': None, 'battery': {}}
         try:
             ticks = [int(v) for v in text(self.proc/'stat').splitlines()[0].split()[1:9]]
-            total, idle = sum(ticks), sum(ticks[3:5])
-            if self.previous:
+            total, idle, now = sum(ticks), sum(ticks[3:5]), time.monotonic()
+            if self.previous and now - self.previous[2] <= MAX_SAMPLE_GAP:
                 delta = total - self.previous[0]
                 result['cpu_usage'] = 100 * (1 - (idle-self.previous[1])/delta) if delta > 0 else None
-            self.previous = total, idle
+            self.previous = total, idle, now
         except (ValueError, IndexError):
             pass
         mem = {}
@@ -71,16 +82,20 @@ class Telemetry:
         result['cpu_temperature']=max(temperatures,default=None)
         result['battery']=self.battery()
         if gpu:
-            try:
-                query='temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw.average,power.draw.instant,power.max_limit,clocks.gr,clocks.mem'
-                process=subprocess.run(['nvidia-smi','--query-gpu='+query,'--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=3)
-                if process.returncode:
-                    query=query.replace('power.draw.average,power.draw.instant','power.draw,power.draw')
-                    process=subprocess.run(['nvidia-smi','--query-gpu='+query,'--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=3)
-                if process.returncode == 0: result['gpu']=gpu_fields(process.stdout)
-            except (OSError,ValueError,subprocess.TimeoutExpired):
-                pass
+            result['gpu']=self.gpu()
         return result
+
+    def gpu(self):
+        try:
+            for query in self.gpu_queries:
+                process=subprocess.run(['nvidia-smi','--query-gpu='+query,'--format=csv,noheader,nounits'],
+                                       capture_output=True,text=True,timeout=3,check=False)
+                if process.returncode == 0:
+                    self.gpu_queries=(query,)  # The driver accepted it; skip failing variants from now on.
+                    return gpu_fields(process.stdout)
+        except (OSError,ValueError,subprocess.TimeoutExpired):
+            pass
+        return None
 
     def battery(self):
         for battery in self.sys.glob('class/power_supply/*'):
@@ -98,7 +113,7 @@ class Telemetry:
                 power=number(text(battery/'current_now'))
             remaining=(full-energy if status=='Charging' else energy) if full and energy is not None else None
             hours=remaining/power if power and remaining is not None and remaining>=0 else None
-            return dict(capacity=capacity,status=status,health=min(100,full/design*100) if full and design else None,
-                        hours=hours,cycles=number(text(battery/'cycle_count')),
-                        manufacturer=text(battery/'manufacturer','Unknown'),model=text(battery/'model_name','Battery'))
+            return {'capacity': capacity,'status': status,'health': min(100,full/design*100) if full and design else None,
+                        'hours': hours,'cycles': number(text(battery/'cycle_count')),
+                        'manufacturer': text(battery/'manufacturer','Unknown'),'model': text(battery/'model_name','Battery')}
         return {}

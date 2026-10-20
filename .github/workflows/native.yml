@@ -15,6 +15,7 @@ jobs:
       - name: Validate shell and Python
         run: |
           bash -n setup.sh run.sh scripts/*.sh
+          pipx run ruff==0.16.9 check .
           /usr/bin/python3 -m unittest discover -s tests -v
       - name: Exercise GTK interface with preview data
         run: xvfb-run -a dbus-run-session -- env GSK_RENDERER=cairo /usr/bin/python3 scripts/ui-smoke.py

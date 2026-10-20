@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import math
+
 import gi
+
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk, Gdk, Pango, PangoCairo
+from gi.repository import Gdk, Gtk, Pango, PangoCairo
+
 from .keyboard import keycaps
 
 
@@ -83,7 +86,7 @@ class HistoryChart(Gtk.DrawingArea):
         self.color=color
         self.set_draw_func(self.draw)
     def sample(self, value):
-        self.values=(self.values+[value])[-60:]
+        self.values=[*self.values,value][-60:]
         self.queue_draw()
     def draw(self, _, cr, width, height):
         cr.set_source_rgba(.55,.6,.65,.12)
@@ -124,24 +127,27 @@ USAGES.update({58+i:'F'+str(i+1) for i in range(12)})
 
 
 class KeyboardCanvas(Gtk.DrawingArea):
-    def __init__(self, height=220):
+    def __init__(self, height=220, selectable=False):
         super().__init__(content_height=height,hexpand=True)
-        self.lamps=[]; self.colors={}; self.selected=set(); self.rects=[]; self.on_selection=None
+        self.lamps=[]; self.caps=[]; self.colors={}; self.selected=set(); self.rects=[]; self.on_selection=None
         self.set_draw_func(self.draw)
-        click=Gtk.GestureClick()
-        click.connect('pressed',self.clicked)
-        self.add_controller(click)
-        self.set_tooltip_text('Click keys to select them. LED geometry comes from the keyboard.')
+        if selectable:
+            click=Gtk.GestureClick()
+            click.connect('pressed',self.clicked)
+            self.add_controller(click)
+            self.set_tooltip_text('Click keys to select them. LED geometry comes from the keyboard.')
     def set_layout(self, lamps, colors=None):
         self.lamps=lamps
+        # Keycap geometry depends only on the lamps, so it is computed once rather than on every redraw.
+        self.caps=keycaps(lamps)
         self.colors=colors or {}
         self.queue_draw()
     def draw(self, _, cr, width, height):
         self.rects=[]
-        if not self.lamps:
+        if not self.caps:
             cr.set_source_rgba(.6,.65,.7,.8); cr.set_font_size(13)
             cr.move_to(24,height/2); cr.show_text('Keyboard layout is unavailable'); return
-        caps=keycaps(self.lamps)
+        caps=self.caps
         minx=min(x for _,x,y,w,h in caps); miny=min(y for _,x,y,w,h in caps)
         spanx=max(x+w for _,x,y,w,h in caps)-minx
         spany=max(y+h for _,x,y,w,h in caps)-miny
@@ -149,6 +155,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
         ox=(width-spanx*scale)/2; oy=(height-spany*scale)/2
         self.rounded(cr,ox-10,oy-10,spanx*scale+20,spany*scale+20,12)
         cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
+        layout=PangoCairo.create_layout(cr)
         for lamp,kx,ky,kw,kh in caps:
             lid=lamp['id']; selected=lid in self.selected
             x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
@@ -165,7 +172,6 @@ class KeyboardCanvas(Gtk.DrawingArea):
             cr.set_source_rgba(*rgb,.35 if selected else .13); cr.fill_preserve()
             cr.set_source_rgba(*rgb,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
             text=lamp.get('label') or USAGES.get(lamp.get('key_usage'),'LED '+str(lid))
-            layout=PangoCairo.create_layout(cr)
             layout.set_text(text,-1)
             layout.set_font_description(Pango.FontDescription.from_string('Sans '+str(min(9,max(5.5,w/max(1,len(text))*1.1)))))
             tw,th=layout.get_pixel_size()

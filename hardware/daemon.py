@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Native PH16-72 edition; modified October 2026. Attribution and terms: NOTICE.md.
 """Hardware control daemon: stock Acer sysfs and direct HID, newline-delimited JSON."""
 import argparse
+import contextlib
 import grp
 import json
 import logging
@@ -11,8 +11,10 @@ import signal
 import socket
 import socketserver
 import sys
-from .controls import NativeControls, VERSION
-from . import hotkey
+import threading
+
+from . import hotkey, uevents
+from .controls import VERSION, NativeControls
 
 MAX_MESSAGE = 65536
 log = logging.getLogger('fedorizer')
@@ -36,10 +38,10 @@ class RequestHandler(socketserver.StreamRequestHandler):
                             not isinstance(request.get('params', {}), dict)):
                         raise ValueError('Expected a command object and parameter object')
                     result = self.server.controls.command(request.get('command', ''), request.get('params', {}))
-                    response = dict(success=True, data=result)
+                    response = {'success': True, 'data': result}
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError) as e:
                     log.warning('Command failed: %s', e)
-                    response = dict(success=False, error=str(e))
+                    response = {'success': False, 'error': str(e)}
                 self.wfile.write(json.dumps(response).encode() + b'\n')
             except (BrokenPipeError, ConnectionResetError, TimeoutError):
                 break
@@ -53,9 +55,29 @@ class NativeServer(socketserver.ThreadingUnixStreamServer):
         super().__init__(path, RequestHandler)
 
 
+def watch_hid(controls):
+    """Replay lighting when HID devices appear or disappear, once per burst of events."""
+    hotplug = uevents.open_socket()
+    while True:
+        hotplug.settimeout(None)
+        if not uevents.changed(hotplug, {'hidraw'}):
+            continue
+        # A keyboard reconnect adds several hidraw nodes; wait until events settle.
+        hotplug.settimeout(1)
+        with contextlib.suppress(TimeoutError):
+            while True:
+                uevents.changed(hotplug, set())
+        controls.restore_lighting()
+
+
+def restore_in_background(controls):
+    threading.Thread(target=controls.restore_lighting, daemon=True, name='restore-lighting').start()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--inspect', action='store_true', help='Read capabilities without starting a server')
+    parser.add_argument('--auto-fans', action='store_true', help='Return fans to automatic control and exit')
     parser.add_argument('--socket', default='/run/acer-fedorizer.sock')
     parser.add_argument('--state-file', default='/var/lib/acer-fedorizer/lighting.json')
     parser.add_argument('--socket-owner', type=int, default=0, help='Desktop UID allowed to access the socket')
@@ -63,6 +85,9 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    if args.auto_fans:
+        NativeControls(state_file=args.state_file, discover_hid=False).auto_fans()
+        return
     controls = NativeControls(state_file=args.state_file)
     if args.inspect:
         print(json.dumps(controls.settings(), indent=2))
@@ -90,12 +115,17 @@ def main():
             os.chmod(args.socket, 0o600)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-    button_stop = hotkey.start(args.socket_owner)
+    # systemctl reload (also sent after resume from sleep) replays saved lighting.
+    signal.signal(signal.SIGUSR1, lambda *_: restore_in_background(controls))
+    restore_in_background(controls)
+    threading.Thread(target=watch_hid, args=(controls,), daemon=True, name='hid-hotplug').start()
+    hotkey.start(args.socket_owner)
     try:
         log.info('Native controls: %s', ', '.join(sorted(controls.features)))
         server.serve_forever(poll_interval=0.5)
     finally:
-        button_stop.set()
+        # Manual fan speeds never outlive the service; ExecStopPost repeats this after a crash.
+        controls.auto_fans()
         server.server_close()
         os.unlink(args.socket)
 

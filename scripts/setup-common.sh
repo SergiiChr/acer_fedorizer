@@ -8,6 +8,8 @@ SOURCE_TREE=/usr/src
 MODULES_DIR=/lib/modules
 RUN_DIR=/run
 UNIT_DIR=/etc/systemd/system
+RESUME_UNIT=$UNIT_DIR/fedorizer-resume.service
+SLEEP_TARGETS=(suspend hibernate hybrid-sleep suspend-then-hibernate)
 LAUNCHER=/usr/local/bin/acer-fedorizer
 DESKTOP_FILE=/usr/share/applications/io.github.SergiiChr.AcerFedorizer.desktop
 ICON_FILE=/usr/share/icons/hicolor/scalable/apps/acer-fedorizer.svg
@@ -18,10 +20,17 @@ lightbar_supported() {
     [[ $(cat "$PRODUCT_FILE" 2>/dev/null || true) == 'Predator PH16-72' ]]
 }
 
+# Unit files, including the links that enable the resume unit.
+unit_paths() {
+    local target
+    printf '%s\n' "$UNIT_DIR/fedorizer-daemon.service" "$RESUME_UNIT"
+    for target in "${SLEEP_TARGETS[@]}"; do printf '%s\n' "$UNIT_DIR/$target.target.wants/${RESUME_UNIT##*/}"; done
+}
+
 installation_exists() {
     local path
     for path in "$APP_DIR" "$APP_DIR.previous" "$STATE_DIR" \
-        "$UNIT_DIR/fedorizer-daemon.service" "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE" \
+        "$UNIT_DIR/fedorizer-daemon.service" "$RESUME_UNIT" "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE" \
         "$RUN_DIR/acer-fedorizer.sock" "$DKMS_TREE/laptop-lightbar" "$MODULE_DIR" \
         "$SOURCE_TREE"/laptop-lightbar-* "$APP_DIR".backup.*; do
         [[ ! -e "$path" && ! -L "$path" ]] || return 0
@@ -58,17 +67,19 @@ remove_lightbar() {
 }
 
 remove_application() {
-    local path
+    local path units
     # Missing/inactive services are normal on a first install or repeated removal.
     if [[ -e "$UNIT_DIR/fedorizer-daemon.service" ]] || systemctl cat fedorizer-daemon.service >/dev/null 2>&1; then
         systemctl disable --now fedorizer-daemon.service
     fi
+    if [[ -e "$RESUME_UNIT" ]]; then systemctl disable fedorizer-resume.service; fi
     if command -v pkill >/dev/null; then
         pkill -TERM -f "^/usr/bin/python3 -m control_center([[:space:]]|$)" || [[ $? -eq 1 ]]
     fi
     remove_lightbar
     remove_legacy_application
-    rm -f -- "$UNIT_DIR/fedorizer-daemon.service" "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE" "$RUN_DIR/acer-fedorizer.sock"
+    mapfile -t units < <(unit_paths)
+    rm -f -- "${units[@]}" "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE" "$RUN_DIR/acer-fedorizer.sock"
     rm -rf -- "$UNIT_DIR/fedorizer-daemon.service.d" "$APP_DIR" "$APP_DIR.previous" "$STATE_DIR"
     for path in "$APP_DIR".backup.*; do
         [[ ! -e "$path" && ! -L "$path" ]] || rm -rf -- "$path"

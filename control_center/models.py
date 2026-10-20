@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """UI-independent editing and validation; no GTK or hardware imports."""
-from dataclasses import dataclass, asdict
+import contextlib
 import re
+from dataclasses import asdict, dataclass
 
 EFFECTS = {0:'Static', 1:'Breathing', 2:'Neon', 3:'Wave', 4:'Fireball',
            5:'Heartbeat', 6:'Dazzling', 7:'Snake', 8:'Ripple', 9:'Rain'}
 PROFILES = {'low-power':'Eco', 'quiet':'Quiet', 'balanced':'Balanced',
             'balanced-performance':'Performance', 'performance':'Turbo'}
+# UI-only keyboard choice: four static zones, applied with set_per_zone_mode instead of an effect.
+ZONE_MODE = 10
+EFFECT_NAMES = {**EFFECTS, ZONE_MODE: 'Four zones'}
+ZONE_COLORS = ('5bbfbd', '73a7d8', 'a691d9', 'd6a46e')
 TARGETS = {'keyboard':'Keyboard', 'wasd':'WASD keys', 'logo':'Lid logo',
            'lightbar':'Rear light bar', 'all':'All lights (sync)'}
 
@@ -31,6 +36,7 @@ class LightingDraft:
     speed: int = 5
     direction: int = 1
     link_wasd: bool = True
+    zones: tuple[str, ...] = ZONE_COLORS
 
     @classmethod
     def from_state(cls, state, modes):
@@ -39,22 +45,31 @@ class LightingDraft:
             value = state.get(field)
             if isinstance(value, int) and not isinstance(value, bool):
                 setattr(draft, field, value)
-        try:
+        with contextlib.suppress(ValueError):
             draft.color = rgb_hex(state.get('color', draft.color))
-        except ValueError:
-            pass
         draft.mode = draft.mode if draft.mode in modes else next(iter(modes), 0)
         draft.brightness = max(0, min(100, draft.brightness))
         draft.speed = max(1, min(9, draft.speed))
         draft.direction = draft.direction if draft.direction in (1,2) else 1
         draft.link_wasd = state.get('link_wasd') is not False
+        zones = state.get('colors') if state.get('kind') == 'zones' else None
+        if ZONE_MODE in modes and isinstance(zones, list) and len(zones) == 4:
+            try:
+                draft.zones = tuple(rgb_hex(zone) for zone in zones)
+                draft.mode = ZONE_MODE
+            except ValueError:
+                pass
         return draft
 
-    def params(self, target):
+    def request(self, target):
+        """Return the (command, params) pair that applies this draft."""
+        if self.mode == ZONE_MODE:
+            return 'set_per_zone_mode', {f'zone{i}': rgb_hex(zone) for i, zone in enumerate(self.zones, 1)}
         result = asdict(self)
+        del result['zones']
         result['color'] = rgb_hex(self.color)
         result['target'] = target
-        return result
+        return 'set_lighting', result
 
 
 def full_key_map(lamps, saved=None, default='5bbfbd'):

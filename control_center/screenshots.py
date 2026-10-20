@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Render screenshots of our actual GTK windows with explicitly labelled preview data."""
 from pathlib import Path
+
 import gi
+
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk, GLib
+from gi.repository import GLib, Gtk
+
 from .app import PAGES
 
 
@@ -45,7 +48,7 @@ def capture_pages(app,directory):
                 save_window(target,directory/(name+'.png'))
                 print(directory/(name+'.png'),flush=True)
                 if name in ('keyboard','credits'): target.close()
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - any capture failure must end the run.
                 app.capture_error=str(error)
                 print('Screenshot failed:',error,flush=True)
                 app.quit(); return False

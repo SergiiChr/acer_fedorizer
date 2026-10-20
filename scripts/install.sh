@@ -56,13 +56,54 @@ After=systemd-udevd.service
 Type=simple
 WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/python3 -m hardware.daemon --socket-owner $SOCKET_UID
+# Hand fans back to firmware control after every stop, including a crash.
+ExecStopPost=/usr/bin/python3 -m hardware.daemon --auto-fans
+# Replays saved lighting; the resume unit uses it after sleep.
+ExecReload=/usr/bin/kill -USR1 \$MAINPID
 Restart=on-failure
 RestartSec=3
 User=root
 Group=fedorizer
-UMask=0007
+UMask=0077
+# Root already owns the sysfs and device files it writes. The capabilities only cover
+# handing the socket to the desktop user and switching to that user for the button launch.
+CapabilityBoundingSet=CAP_CHOWN CAP_SETUID CAP_SETGID
+NoNewPrivileges=yes
+# /sys stays writable for the stock controls; ProtectKernelTunables would block them.
+ProtectSystem=strict
+ReadWritePaths=$RUN_DIR $STATE_DIR
+# Read-only still allows connecting to the desktop user's bus under /run/user.
+ProtectHome=read-only
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=char-hidraw rw
+DeviceAllow=char-input r
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+IPAddressDeny=any
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
 [Install]
 WantedBy=multi-user.target
+SERVICE
+cat > "$RESUME_UNIT" <<SERVICE
+[Unit]
+Description=Reapply Acer Fedorizer lighting after sleep
+After=${SLEEP_TARGETS[*]/%/.target}
+[Service]
+Type=oneshot
+ExecStart=-/usr/bin/systemctl --no-block reload fedorizer-daemon.service
+[Install]
+WantedBy=${SLEEP_TARGETS[*]/%/.target}
 SERVICE
 cat > "$LAUNCHER" <<LAUNCH
 #!/bin/sh
@@ -88,6 +129,7 @@ if lightbar_supported; then
 fi
 if command -v update-desktop-database >/dev/null; then update-desktop-database "${DESKTOP_FILE%/*}"; fi
 systemctl daemon-reload
+systemctl enable fedorizer-resume.service
 systemctl enable --now fedorizer-daemon.service
 systemctl is-active --quiet fedorizer-daemon.service
 # Type=simple can be active before Python finishes importing or opens its socket.

@@ -39,7 +39,7 @@ Hardware smoke testing accepted stock profile read/write, automatic fan mode, ke
 
 ## Scope limits
 
-- HID lighting state shown after restart is persisted successful command state, not a verified firmware query. Failed writes never become successful saved state.
+- HID lighting state shown after restart is persisted successful command state, not a verified firmware query. Failed writes never become successful saved state. The service replays it at start, after sleep (`fedorizer-resume.service` runs `systemctl reload`), and when kernel hotplug events report a hidraw change. Replay never changes saved state.
 - Physical MUX/Optimus display switching is unavailable through the detected interfaces. The graphics control card and NVIDIA application launcher were removed at the user’s request.
 - Battery charge threshold and Acer extras are offered only when their stock kernel attributes exist. This host does not expose most optional extras.
 - NVIDIA GPU monitoring is opt-in. Per-core GHz values are sampled `scaling_cur_freq` readings averaged across the logical threads of each physical core.
@@ -49,8 +49,14 @@ Hardware smoke testing accepted stock profile read/write, automatic fan mode, ke
 The GUI runs with unchanged desktop credentials. The root service assigns its
 control socket to the installing desktop UID and the restricted `fedorizer`
 group with mode 0660. Session D-Bus operations remain in the desktop process.
+The service is sandboxed: a read-only system, hidraw/input-only device access, no
+network, and only the capabilities for handing over the socket (`CAP_CHOWN`) and
+switching to the desktop user for the Predator button launch (`CAP_SETUID`,
+`CAP_SETGID`). The launch no longer goes through runuser/PAM. Writes to sysfs and
+hidraw rely on root owning those files. These limits are not yet verified on
+hardware; check `journalctl -u fedorizer-daemon.service` after installing.
 
-Lighting now uses one device/effect editor for Keyboard, WASD, Logo, and Bar. Unsupported effects are disabled per device. Explicit hex input and color swatches accompany the color picker; apply feedback identifies the device and submitted color. Four static keyboard zones remain in a collapsed advanced section. The installer stages the GUI in a new directory and swaps it in, so updating an open executable no longer fails with ETXTBSY.
+Lighting now uses one device/effect editor for Keyboard, WASD, Logo, and Bar. Unsupported effects are disabled per device. Explicit hex input and color swatches accompany the color picker; apply feedback identifies the device and submitted color. Four static keyboard zones are a keyboard choice in the same editor and use full color without brightness scaling. The installer stages the GUI in a new directory and swaps it in, so updating an open executable no longer fails with ETXTBSY.
 
 ## Follow-up review
 

@@ -5,7 +5,16 @@ Protocol references: Acer PredatorSense 5.0.1463 DLLs and
 https://github.com/TensorRaya/acer-predator-helios-rgb/blob/main/protocol/PROTOCOL.md
 (CC-BY-4.0 protocol documentation; implementation maintained in this project).
 """
-import os, fcntl, glob, re, struct, time
+import contextlib
+import fcntl
+import os
+import re
+import struct
+import time
+from pathlib import Path
+from typing import ClassVar
+
+OPEN_FLAGS = os.O_RDWR | os.O_CLOEXEC
 _IOC_NRBITS = 8
 _IOC_TYPEBITS = 8
 _IOC_SIZEBITS = 14
@@ -105,13 +114,13 @@ class LampArrayDevice:
         return reports, slots
 
     @classmethod
-    def discover(cls, vendor_filter=(0x05AF, 0x04F2, 0x0D62)):
+    def discover(cls, sys_root="/sys", vendor_filter=(0x05AF, 0x04F2)):
         """Find internal LampArray keyboards. vendor_filter=None matches any vendor."""
         out = []
-        for h in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        for h in sorted(Path(sys_root, "class/hidraw").glob("hidraw*")):
             try:
-                uevent = open(h + "/device/uevent").read()
-                desc = open(h + "/device/report_descriptor", "rb").read()
+                uevent = (h / "device/uevent").read_text()
+                desc = (h / "device/report_descriptor").read_bytes()
             except OSError:
                 continue
             if b"\x05\x59\x09\x01" not in desc:
@@ -127,12 +136,12 @@ class LampArrayDevice:
                                               cls.MULTI, cls.RANGE, cls.CONTROL)):
                 continue
             nm = re.search(r"HID_NAME=(.*)", uevent)
-            out.append(cls("/dev/" + os.path.basename(h), vid, pid,
+            out.append(cls("/dev/" + h.name, vid, pid,
                            nm.group(1).strip() if nm else "?", reports, slots or 8))
         return out
 
     def open(self):
-        self.fd = os.open(self.path, os.O_RDWR)
+        self.fd = os.open(self.path, OPEN_FLAGS)
         try:
             attrs = self._get(self.reports[self.ATTRS], 23)
         except Exception:
@@ -156,14 +165,14 @@ class LampArrayDevice:
 
     def _get(self, rid, n):
         buf = bytearray(n); buf[0] = rid
-        for attempt in range(8):
-            try:
+        for _ in range(7):
+            with contextlib.suppress(OSError):
                 fcntl.ioctl(self.fd, HIDIOCGFEATURE(n), buf, True)
                 return bytes(buf)
-            except OSError:
-                if attempt == 7:
-                    raise
-                time.sleep(0.05)
+            time.sleep(0.05)
+        # The final attempt reports its error.
+        fcntl.ioctl(self.fd, HIDIOCGFEATURE(n), buf, True)
+        return bytes(buf)
 
     def _set(self, data):
         buf = bytearray(data)
@@ -227,33 +236,32 @@ def send_feature(fd, data):
 class VendorKeyboard:
     # Firmware IDs derived from the original DLL's mode switch and named
     # constructors. Omit undocumented modes previously guessed from UI indices.
-    EFFECTS = {0: 0x01, 1: 0x02, 2: 0x08, 3: 0x03, 4: 0x12,
+    EFFECTS: ClassVar[dict[int, int]] = {0: 0x01, 1: 0x02, 2: 0x08, 3: 0x03, 4: 0x12,
                5: 0x29, 6: 0x2A, 7: 0x05, 8: 0x06, 9: 0x0A}
-    PALETTE_MODES = {2, 3}
 
     def __init__(self, path):
         self.path = path
 
     @classmethod
-    def discover(cls):
-        for h in sorted(glob.glob('/sys/class/hidraw/hidraw*')):
+    def discover(cls, sys_root='/sys'):
+        for h in sorted(Path(sys_root, 'class/hidraw').glob('hidraw*')):
             try:
-                u = open(h + '/device/uevent').read()
-                d = open(h + '/device/report_descriptor', 'rb').read()
-                # The PH16-72 vendor collection is a nine-byte feature report.
-                if 'HID_NAME=ACER Keyboard' in u and d.startswith(b'\x06\x02\xff'):
-                    return cls('/dev/' + os.path.basename(h))
+                u = (h / 'device/uevent').read_text()
+                d = (h / 'device/report_descriptor').read_bytes()
             except OSError:
                 continue
+            # The PH16-72 vendor collection is a nine-byte feature report.
+            if 'HID_NAME=ACER Keyboard' in u and d.startswith(b'\x06\x02\xff'):
+                return cls('/dev/' + h.name)
         return None
 
-    MAG_EFFECTS = {0: 0x41, 1: 0x42, 2: 0x45, 3: 0x43, 7: 0x44}
+    MAG_EFFECTS: ClassVar[dict[int, int]] = {0: 0x41, 1: 0x42, 2: 0x45, 3: 0x43, 7: 0x44}
 
     def effect(self, mode, rgb, speed, brightness, direction=1, mag=False):
         table = self.MAG_EFFECTS if mag else self.EFFECTS
         if mode not in table:
             raise ValueError('Unsupported native keyboard effect')
-        fd = os.open(self.path, os.O_RDWR)
+        fd = os.open(self.path, OPEN_FLAGS)
         try:
             # PredatorSense SunrexUSBKeyboard.dll RVA 0x1800, not the older
             # four-zone WMI format. The DLL inverts speed, prepares the mode,
@@ -269,19 +277,19 @@ class VendorKeyboard:
 
 
 class CoverLogo:
-    EFFECTS = {0: 1, 1: 2, 2: 8, 9: 10}
+    EFFECTS: ClassVar[dict[int, int]] = {0: 1, 1: 2, 2: 8, 9: 10}
     def __init__(self, path):
         self.path = path
 
     @classmethod
-    def discover(cls):
-        for h in sorted(glob.glob('/sys/class/hidraw/hidraw*')):
+    def discover(cls, sys_root='/sys'):
+        for h in sorted(Path(sys_root, 'class/hidraw').glob('hidraw*')):
             try:
-                u = open(h + '/device/uevent').read()
-                if re.search(r'HID_ID=\w+:0*0D62:0*BA51', u, re.I):
-                    return cls('/dev/' + os.path.basename(h))
+                u = (h / 'device/uevent').read_text()
             except OSError:
                 continue
+            if re.search(r'HID_ID=\w+:0*0D62:0*BA51', u, re.IGNORECASE):
+                return cls('/dev/' + h.name)
         return None
 
     def color(self, rgb, brightness):
@@ -290,7 +298,7 @@ class CoverLogo:
     def effect(self, mode, rgb, speed, brightness, direction=1):
         if mode not in self.EFFECTS:
             raise ValueError('Unsupported logo effect')
-        fd = os.open(self.path, os.O_RDWR)
+        fd = os.open(self.path, OPEN_FLAGS)
         try:
             # DarfonUSBLogo.dll logo path RVA 0x1e20 (the 0x16c0 path is keyboard).
             # Logo commands use 08/03 and the fixed speed field 11.

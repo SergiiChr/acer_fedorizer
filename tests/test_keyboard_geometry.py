@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import unittest
+
 from control_center.keyboard import keycaps
 from control_center.preview import layout
 

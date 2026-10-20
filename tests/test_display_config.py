@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import copy
 import importlib.util
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
@@ -117,9 +117,9 @@ class DisplayConfigTests(unittest.TestCase):
             if method == "ApplyMonitorsConfig": raise RuntimeError("stale serial")
             return Reply(initial)
         proxy.call_sync = reject
-        with patch.object(Gio.DBusProxy, "new_for_bus_sync", return_value=proxy):
-            with self.assertRaisesRegex(RuntimeError, "stale serial"):
-                display.run("enable", "eDP-3")
+        with patch.object(Gio.DBusProxy, "new_for_bus_sync", return_value=proxy), \
+             self.assertRaisesRegex(RuntimeError, "stale serial"):
+            display.run("enable", "eDP-3")
 
 
 if __name__ == "__main__":

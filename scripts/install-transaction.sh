@@ -25,13 +25,14 @@ preflight_lightbar() {
 }
 
 snapshot_installation() {
-    TX_TARGETS=("$APP_DIR" "$APP_DIR.previous" "$STATE_DIR" "$UNIT_DIR/fedorizer-daemon.service"
+    TX_TARGETS=("$APP_DIR" "$APP_DIR.previous" "$STATE_DIR"
         "$UNIT_DIR/fedorizer-daemon.service.d" "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE"
         /opt/damx /opt/damx.previous /var/lib/damx "$UNIT_DIR/damx-daemon.service"
         "$UNIT_DIR/damx-daemon.service.d" /usr/local/bin/DAMX
         /usr/share/applications/damx.desktop /usr/share/icons/hicolor/256x256/apps/damx.png
         "$DKMS_TREE/laptop-lightbar" "$DKMS_TREE/damx-lightbar" "$SOURCE_TREE/laptop-lightbar-0.2.0")
     local path kernel name record index
+    while IFS= read -r path; do TX_TARGETS+=("$path"); done < <(unit_paths)
     for path in "$APP_DIR".backup.* /opt/damx.backup.* "$SOURCE_TREE"/laptop-lightbar-* "$SOURCE_TREE"/damx-lightbar-*; do
         [[ ! -e "$path" && ! -L "$path" ]] || TX_TARGETS+=("$path")
     done

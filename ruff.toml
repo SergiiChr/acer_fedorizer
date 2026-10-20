@@ -1,0 +1,20 @@
+# Lint rules are listed explicitly so results do not change with ruff's default rule set.
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = [
+    "F", "E4", "E9", "W", "I", "B", "C4", "SIM", "UP", "RUF", "PLE", "PLW", "BLE",
+    "FURB", "PIE", "PERF", "EXE", "LOG", "G", "RET", "ISC", "PGH", "FLY", "YTT",
+]
+
+# Typographic key labels and ranges are intentional.
+allowed-confusables = ["−", "×", "–"]
+
+[lint.per-file-ignores]
+# GTK versions must be selected and test/script import paths set before these imports.
+"control_center/{app,widgets,screenshots}.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+# The smoke test records any failure and keeps the GTK main loop running to report it.
+"scripts/ui-smoke.py" = ["E402", "BLE001"]
+"tests/*.py" = ["E402"]
