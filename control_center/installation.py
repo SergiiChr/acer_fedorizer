@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Shared read-only installation checks for the GTK interface and setup status."""
-from pathlib import Path
 import os
 import re
 import subprocess
-from .client import ControlClient
+from pathlib import Path
 
+from .client import ControlClient
 
 CHECKS=[('app','Application module'),('daemon','Daemon source files'),
         ('launcher','Desktop launcher'),('desktop','Desktop menu entry'),
@@ -19,7 +19,7 @@ def collect_status(root=Path('/'), run=subprocess.run):
     def path(value): return root/value.lstrip('/')
     checks=[]
     def add(key,ok,detail):
-        checks.append(dict(key=key,title=dict(CHECKS)[key],ok=ok,detail=detail))
+        checks.append({'key': key,'title': dict(CHECKS)[key],'ok': ok,'detail': detail})
     def command(args):
         try:
             result=run(args,capture_output=True,text=True,timeout=5,check=False)
@@ -48,7 +48,7 @@ def collect_status(root=Path('/'), run=subprocess.run):
         client=ControlClient(str(socket_path),timeout=3)
         try:
             client.command('ping'); add('ping',True,'Responding.')
-        except Exception as error: add('ping',False,str(error)[:500])
+        except (OSError,ValueError,RuntimeError) as error: add('ping',False,str(error)[:500])
         finally: client.close()
     else: add('ping',False,'Cannot connect without the service socket.')
     if model=='Predator PH16-72':
@@ -61,8 +61,8 @@ def collect_status(root=Path('/'), run=subprocess.run):
         else: add('dkms',None,'Could not read DKMS status: '+(detail[:500] or 'command failed'))
     else: add('module',None,'Not required for this model.')
     relevant=[c for c in checks if not (c['key']=='module' and model!='Predator PH16-72')]
-    return dict(model=model,kernel=kernel,checks=checks,healthy=all(c['ok'] is True for c in relevant),
-                installed=path('/opt/acer-fedorizer').exists())
+    return {'model': model,'kernel': kernel,'checks': checks,'healthy': all(c['ok'] is True for c in relevant),
+                'installed': path('/opt/acer-fedorizer').exists()}
 
 
 def main():

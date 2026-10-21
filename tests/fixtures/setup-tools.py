@@ -2,9 +2,9 @@
 """Fake external commands for isolated installer tests."""
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
 
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -57,7 +57,7 @@ elif name == 'systemctl':
         target=unit.with_name('damx-daemon.service') if legacy else unit
         sys.exit(0 if target.exists() else 1)
     if args[0]=='is-active': sys.exit(0 if running.exists() and not unhealthy.exists() else 1)
-    if args[0]=='is-enabled': sys.exit(0 if enabled.exists() or running.exists() and not disabled.exists() else 1)
+    if args[0]=='is-enabled': sys.exit(0 if enabled.exists() or (running.exists() and not disabled.exists()) else 1)
     if args[0]=='enable':
         enabled.touch(); disabled.unlink(missing_ok=True)
         if '--now' in args:

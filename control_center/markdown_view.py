@@ -8,7 +8,6 @@ import html
 import re
 from urllib.parse import urlsplit
 
-
 INLINE=re.compile(r'(`[^`]+`|\*\*.+?\*\*|\[[^\]]+\]\([^\s]+\)|https?://[^\s<>]+|\*[^*]+\*)')
 
 
@@ -70,6 +69,7 @@ def markdown_view(source):
     import gi
     gi.require_version('Gtk','4.0')
     from gi.repository import Gtk, Pango
+
     from .widgets import box
 
     def text(value, css=None):

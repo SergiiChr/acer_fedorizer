@@ -46,12 +46,13 @@ Installer failure tests cover missing headers, build/signing, driver install/loa
 service startup/health/readiness, legacy rollback, and retained recovery data on restore failure.
 They do not install the app or change firmware. UI smoke tests check real widget
 navigation, profile-name/hardware mappings, single-selection mode tiles, fan-slider sensitivity, draft independence, refresh preservation, palette restrictions, and
-no startup writes, rendered credits/links, asynchronous status/error states, target-specific Wave color, and per-key brightness preservation across edits/apply/reopen. Preview screenshots are actual GTK renders, visibly labelled.
+no startup writes, rendered credits/links, asynchronous status/error states, target-specific Wave color, per-key brightness preservation across edits/apply/reopen, and four zones through the single lighting Apply. Preview screenshots are actual GTK renders, visibly labelled.
 
 No polling may overwrite editing drafts or apply a setting automatically. Worker
 threads must not touch GTK. Stop timers on window closure, keep GPU sampling
 opt-in and off hidden pages, and never give the GUI elevated credentials.
 Hardware command acceptance is not visual verification of a lighting effect.
+Python code must pass `ruff check .` with the repository `ruff.toml`.
 
 ## Packaging and notices
 

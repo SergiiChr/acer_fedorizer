@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import unittest
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
 from control_center.markdown_view import blocks, inline_markup
 
 

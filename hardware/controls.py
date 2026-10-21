@@ -1,15 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Native PH16-72 edition; modified October 2026. Attribution and terms: NOTICE.md.
 """Stock kernel and HID controls, with injectable sysfs roots for testing."""
+import contextlib
 import json
+import logging
 import os
 import re
 import threading
 import time
 from pathlib import Path
-from .hid import LampArrayDevice, VendorKeyboard, CoverLogo, _scale_rgb
+
+from .hid import CoverLogo, LampArrayDevice, VendorKeyboard, _scale_rgb
 
 VERSION = '0.7.0'
+WASD_USAGES = (4, 7, 22, 26)
+log = logging.getLogger('fedorizer')
 
 
 def read(path, default=''):
@@ -31,6 +36,12 @@ def color(value):
     return tuple(bytes.fromhex(value.lstrip('#')))
 
 
+def effect_params(p):
+    """Validate (mode, rgb, speed, brightness, direction) from a request or saved state."""
+    return (integer(p.get('mode', 0), 0, 9), color(p.get('color')), integer(p.get('speed', 5), 1, 9),
+            integer(p.get('brightness', 100), 0, 100), integer(p.get('direction', 1), 1, 2))
+
+
 class NativeControls:
     def __init__(self, sys_root='/sys', state_file='/var/lib/acer-fedorizer/lighting.json', discover_hid=True):
         self.root = Path(sys_root)
@@ -43,37 +54,16 @@ class NativeControls:
                 break
         self.hwmon = next((p for p in sorted((self.root / 'class/hwmon').glob('*'))
                            if read(p / 'name') == 'acer' and (p / 'fan1_input').exists()), None)
-        self.arrays = LampArrayDevice.discover() if discover_hid else []
-        self.keyboard = next((d for d in self.arrays if d.vid in (0x05AF, 0x04F2)), None)
-        self.vendor = VendorKeyboard.discover() if discover_hid else None
-        self.logo = CoverLogo.discover() if discover_hid else None
-        self.other_arrays = {}
-        for d in self.arrays:
-            if d.vid == 0x0D62:
-                phys = read(self.root / 'class/hidraw' / Path(d.path).name / 'device/uevent')
-                # These PIDs identify the separate Darfon lightbar/cover devices.
-                if d.pid == 0xA20A:
-                    self.other_arrays['lightbar'] = d
-                elif d.pid == 0xA00A:
-                    self.other_arrays['glass' if '/input2' in phys else 'logo'] = d
-        self.features = set()
+        self.static_features = set()
         if self.profile_dir:
-            self.features.add('thermal_profile')
+            self.static_features.add('thermal_profile')
         if self.hwmon and all((self.hwmon / f'pwm{i}').exists() and
                               (self.hwmon / f'pwm{i}_enable').exists() for i in (1, 2)):
-            self.features.add('fan_speed')
-        if self.keyboard:
-            self.features.add('per_zone_mode')
-            self.features.add('per_key_mode')
-        if self.keyboard or self.vendor:
-            self.features.add('four_zone_mode')
-        if self.logo or 'logo' in self.other_arrays:
-            self.features.add('usb_logo')
-        self.features.update(self.other_arrays)
+            self.static_features.add('fan_speed')
         self.bar_bridge = next(iter((self.root / 'bus/wmi/devices').glob(
             '7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56*/color')), None)
         if self.bar_bridge:
-            self.features.add('lightbar')
+            self.static_features.add('lightbar')
         self.extra_files = {}
         # Only expose stock kernel attributes that actually exist.
         for key in ('backlight_timeout', 'battery_calibration', 'battery_limiter',
@@ -81,16 +71,37 @@ class NativeControls:
             p = self.root / 'devices/platform/acer-wmi' / key
             if p.exists():
                 self.extra_files[key] = p
-                self.features.add(key)
+                self.static_features.add(key)
         self.threshold = next(iter((self.root / 'class/power_supply').glob('*/charge_control_end_threshold')), None)
         if self.threshold:
-            self.features.add('battery_limiter')
+            self.static_features.add('battery_limiter')
+        self.discover_hid = discover_hid
+        self.keyboard = self.vendor = self.logo = None
+        if discover_hid:
+            self.find_hid()
         try:
             self.lighting = json.loads(self.state_file.read_text())
             if not isinstance(self.lighting, dict):
                 self.lighting = {}
         except (OSError, ValueError):
             self.lighting = {}
+
+    def find_hid(self):
+        """Refresh HID handles; device nodes change after a reconnect or resume."""
+        self.keyboard = next(iter(LampArrayDevice.discover(self.root)), None)
+        self.vendor = VendorKeyboard.discover(self.root)
+        self.logo = CoverLogo.discover(self.root)
+
+    @property
+    def features(self):
+        features = set(self.static_features)
+        if self.keyboard:
+            features.update(('per_zone_mode', 'per_key_mode'))
+        if self.keyboard or self.vendor:
+            features.add('four_zone_mode')
+        if self.logo:
+            features.add('usb_logo')
+        return features
 
     def _write(self, path, value):
         Path(path).write_text(str(value))
@@ -120,23 +131,11 @@ class NativeControls:
             for i, name in ((1, 'cpu'), (2, 'gpu')):
                 value = read(self.hwmon / f'fan{i}_input') if self.hwmon else ''
                 rpm[name] = int(value) if value.isascii() and value.isdecimal() else None
-            out = dict(version=VERSION, driver_version='Stock Linux acer_wmi + HID',
-                       laptop_type=read(self.root / 'class/dmi/id/product_name', 'Acer'),
-                       has_four_zone_kb=bool(self.keyboard or self.vendor),
-                       available_features=sorted(self.features), ac_online=self.ac_online(),
-                       thermal_profile=dict(current=profile, available=choices), fan_speed=fan, fan_rpm=rpm,
-                       per_zone_mode=self.lighting.get('per_zone_mode', ''),
-                       four_zone_mode=self.lighting.get('four_zone_mode', ''),
-                       lighting_modes=self.lighting_modes(), lighting_state=dict(self.lighting), lighting_state_source='last successful command',
-                       lighting_devices=[dict(target='keyboard', path=self.keyboard.path)] if self.keyboard else [],
-                       effect_color_supported=[0, 1, 4, 5, 6, 7, 8, 9],
-                       lightbar_status='available' if 'lightbar' in self.features else
-                       'No direct lightbar interface detected on this firmware')
-            out['lighting_devices'] += [dict(target=k, path=v.path) for k, v in self.other_arrays.items()]
-            if self.logo:
-                out['lighting_devices'].append(dict(target='logo', path=self.logo.path))
-            if self.bar_bridge:
-                out['lighting_devices'].append(dict(target='lightbar', path=str(self.bar_bridge)))
+            out = {'version': VERSION, 'driver_version': 'Stock Linux acer_wmi + HID',
+                   'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
+                   'available_features': sorted(self.features), 'ac_online': self.ac_online(),
+                   'thermal_profile': {'current': profile, 'available': choices}, 'fan_speed': fan, 'fan_rpm': rpm,
+                   'lighting_modes': self.lighting_modes(), 'lighting_state': dict(self.lighting)}
             for k, p in self.extra_files.items():
                 out[k] = read(p)
             if self.threshold:
@@ -153,6 +152,14 @@ class NativeControls:
             raise RuntimeError(f'Firmware selected {actual!r} instead of {profile!r}')
         return actual
 
+    def auto_fans(self):
+        """Hand both fans back to firmware control; each fan is attempted even if the other fails."""
+        if not self.hwmon:
+            return
+        for i in (1, 2):
+            with contextlib.suppress(OSError):
+                self._write(self.hwmon / f'pwm{i}_enable', 2)
+
     def set_fans(self, cpu, gpu):
         if 'fan_speed' not in self.features:
             raise ValueError('Stock Acer fan control unavailable')
@@ -167,39 +174,10 @@ class NativeControls:
                     self._write(self.hwmon / f'pwm{i}', round(speed * 255 / 100))
                     self._write(self.hwmon / f'pwm{i}_enable', 1)
         except Exception:
-            for i in (1, 2):
-                try:
-                    self._write(self.hwmon / f'pwm{i}_enable', 2)
-                except OSError:
-                    pass
+            self.auto_fans()
             raise
 
-    def set_zones(self, p):
-        if not self.keyboard:
-            raise ValueError('Per-lamp keyboard unavailable')
-        colors = [color(p[f'zone{i}']) for i in range(1, 5)]
-        brightness = integer(p.get('brightness', 100), 0, 100)
-        with self.keyboard as kb:
-            lamps = kb.lamps()
-            mapping = {l['id']: _scale_rgb(colors[min(l['x'] * 4 // max(kb.w, 1), 3)], brightness)
-                       for l in lamps}
-            kb.multi(mapping)
-        if self.vendor:
-            self.vendor.effect(0, colors[0], 5, brightness, mag=True)
-        self.lighting['per_zone_mode'] = ','.join([*(bytes(c).hex() for c in colors), str(brightness)])
-        self.lighting['four_zone_mode'] = ''
-        self.lighting.pop('keyboard', None)
-        if self.vendor:
-            self.lighting['wasd'] = dict(mode=0, color=bytes(colors[0]).hex(),
-                brightness=brightness, speed=5, direction=1)
-        self._save()
-
-    def set_effect(self, p, persist=True):
-        mode = integer(p.get('mode', 0), 0, 9)
-        brightness = integer(p.get('brightness', 100), 0, 100)
-        speed = integer(p.get('speed', 5), 1, 9)
-        direction = integer(p.get('direction', 1), 1, 2)
-        rgb = tuple(integer(p.get(k, 0), 0, 255) for k in ('red', 'green', 'blue'))
+    def _apply_keyboard(self, mode, rgb, speed, brightness, direction):
         if mode == 0 and self.keyboard:
             with self.keyboard as kb:
                 kb.fill(_scale_rgb(rgb, brightness))
@@ -210,27 +188,39 @@ class NativeControls:
             self.vendor.effect(mode, rgb, speed, brightness, direction)
         else:
             raise ValueError('Native effects unavailable; static color is supported')
-        # The original DLL uses direction for Wave. Other modes have no
-        # direction field. Neon/Rainbow use a firmware palette.
-        if persist:
-            self.lighting['four_zone_mode'] = ','.join(map(str, [mode, speed, brightness, direction, *rgb]))
-            self.lighting['per_zone_mode'] = ''
-            self.lighting['keyboard'] = dict(mode=mode, color=bytes(rgb).hex(),
-                brightness=brightness, speed=speed, direction=direction)
-            self._save()
 
-    def set_light(self, target, rgb, brightness):
-        brightness = integer(brightness, 0, 100)
-        if target == 'lightbar' and self.bar_bridge:
-            self._set_bar(0, rgb, 5, brightness, 1)
-        elif target in self.other_arrays:
-            with self.other_arrays[target] as dev:
-                dev.fill(_scale_rgb(rgb, brightness))
-        elif target == 'logo' and self.logo:
-            self.logo.color(rgb, brightness)
-        else:
-            raise ValueError(f'No direct {target} controller detected')
-        self.lighting[target] = dict(color=bytes(rgb).hex(), brightness=brightness)
+    def _apply_zones(self, colors):
+        with self.keyboard as kb:
+            kb.multi({lamp['id']: colors[min(lamp['x'] * 4 // max(kb.w, 1), 3)] for lamp in kb.lamps()})
+        if self.vendor:
+            self.vendor.effect(0, colors[0], 5, 100, mag=True)
+
+    def _apply_per_key(self, mapping, brightness):
+        """Send a full static layout and return the lamp list it was validated against."""
+        with self.keyboard as kb:
+            lamps = kb.lamps()
+            if set(mapping) != {lamp['id'] for lamp in lamps if lamp['programmable']}:
+                raise ValueError('Send one color for every programmable keyboard lamp')
+            kb.multi({key: _scale_rgb(rgb, brightness) for key, rgb in mapping.items()})
+        return lamps
+
+    def _apply_device(self, target, mode, rgb, speed, brightness, direction):
+        if target == 'wasd':
+            self.vendor.effect(mode, rgb, speed, brightness, direction, mag=True)
+        elif target == 'logo':
+            self.logo.effect(mode, rgb, speed, brightness, direction)
+        elif target == 'lightbar':
+            self._set_bar(mode, rgb, speed, brightness, direction)
+
+    def set_zones(self, p):
+        if not self.keyboard:
+            raise ValueError('Per-lamp keyboard unavailable')
+        colors = [color(p[f'zone{i}']) for i in range(1, 5)]
+        self._apply_zones(colors)
+        self.lighting['keyboard'] = {'kind': 'zones', 'colors': [bytes(c).hex() for c in colors]}
+        if self.vendor:
+            self.lighting['wasd'] = {'mode': 0, 'color': bytes(colors[0]).hex(), 'brightness': 100,
+                                     'speed': 5, 'direction': 1}
         self._save()
 
     def _set_bar(self, mode, rgb, speed, brightness, direction):
@@ -266,7 +256,7 @@ class NativeControls:
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
         with self.keyboard as kb:
-            return dict(width=kb.w, height=kb.h, lamps=kb.lamps())
+            return {'width': kb.w, 'height': kb.h, 'lamps': kb.lamps()}
 
     def set_per_key(self, p):
         brightness = integer(p.get('brightness', 100), 0, 100)
@@ -283,29 +273,21 @@ class NativeControls:
             mapping[lamp] = color(value)
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
-        with self.keyboard as kb:
-            lamps = kb.lamps()
-            valid = {lamp['id'] for lamp in lamps if lamp['programmable']}
-            if set(mapping) != valid:
-                raise ValueError('Send one color for every programmable keyboard lamp')
-            kb.multi({key: _scale_rgb(rgb, brightness) for key, rgb in mapping.items()})
-        self.lighting['per_key'] = dict(colors={str(k): bytes(v).hex() for k,v in mapping.items()}, brightness=brightness)
-        self.lighting['keyboard'] = dict(kind='per_key', brightness=brightness)
-        wasd = {lamp['id'] for lamp in lamps if lamp.get('key_usage') in (4, 7, 22, 26)}
+        lamps = self._apply_per_key(mapping, brightness)
+        self.lighting['per_key'] = {'colors': {str(k): bytes(v).hex() for k, v in mapping.items()},
+                                    'brightness': brightness}
+        self.lighting['keyboard'] = {'kind': 'per_key', 'brightness': brightness}
+        wasd = {lamp['id'] for lamp in lamps if lamp.get('key_usage') in WASD_USAGES}
         if self.vendor and wasd and wasd <= mapping.keys():
-            self.lighting['wasd'] = dict(kind='per_key', brightness=brightness,
-                colors={str(key): bytes(mapping[key]).hex() for key in wasd})
-        self.lighting['four_zone_mode'] = self.lighting['per_zone_mode'] = ''
+            self.lighting['wasd'] = {'kind': 'per_key', 'brightness': brightness,
+                                     'colors': {str(key): bytes(mapping[key]).hex() for key in wasd}}
         self._save()
 
     def set_global_lighting(self, p):
         mode = integer(p.get('mode', 0), 0, 9)
         if mode not in self.lighting_modes().get('all', []):
             raise ValueError('Choose an effect supported by every lighting device')
-        color(p.get('color'))
-        integer(p.get('brightness', 100), 0, 100)
-        integer(p.get('speed', 5), 1, 9)
-        integer(p.get('direction', 1), 1, 2)
+        effect_params(p)
         applied = []
         for target in self.lighting_modes():
             if target == 'all':
@@ -320,46 +302,60 @@ class NativeControls:
 
     def set_lighting(self, p):
         target = p.get('target')
-        mode = integer(p.get('mode', 0), 0, 9)
+        mode, rgb, speed, brightness, direction = params = effect_params(p)
         if mode not in self.lighting_modes().get(target, []):
             raise ValueError('This device does not support the selected effect')
-        rgb = color(p.get('color'))
-        brightness = integer(p.get('brightness', 100), 0, 100)
-        speed = integer(p.get('speed', 5), 1, 9)
-        direction = integer(p.get('direction', 1), 1, 2)
         link_wasd = p.get('link_wasd', True)
         if not isinstance(link_wasd, bool):
             raise ValueError('Expected boolean link_wasd')
         if target == 'keyboard':
-            self.set_effect(dict(mode=mode, brightness=brightness, speed=speed,
-                                 direction=direction, **dict(zip(('red','green','blue'), rgb))), persist=False)
+            self._apply_keyboard(*params)
             if link_wasd and self.vendor:
                 mag_mode = mode if mode in self.vendor.MAG_EFFECTS else 0
                 self.vendor.effect(mag_mode, rgb, speed, brightness, direction, mag=True)
-                self.lighting['wasd'] = dict(mode=mag_mode, color=bytes(rgb).hex(), brightness=brightness,
-                                            speed=speed, direction=direction)
-            self.lighting['four_zone_mode'] = ','.join(map(str, [mode, speed, brightness, direction, *rgb]))
-            self.lighting['per_zone_mode'] = ''
-        elif target == 'wasd':
-            self.vendor.effect(mode, rgb, speed, brightness, direction, mag=True)
-        elif target == 'logo':
-            self.logo.effect(mode, rgb, speed, brightness, direction)
-        elif target == 'lightbar':
-            self._set_bar(mode, rgb, speed, brightness, direction)
-        self.lighting[target] = dict(mode=mode, color=bytes(rgb).hex(), brightness=brightness,
-                                     speed=speed, direction=direction)
+                self.lighting['wasd'] = {'mode': mag_mode, 'color': bytes(rgb).hex(), 'brightness': brightness,
+                                         'speed': speed, 'direction': direction}
+        else:
+            self._apply_device(target, *params)
+        self.lighting[target] = {'mode': mode, 'color': bytes(rgb).hex(), 'brightness': brightness,
+                                 'speed': speed, 'direction': direction}
         if target == 'keyboard':
             self.lighting[target]['link_wasd'] = link_wasd
         self._save()
 
+    def restore_lighting(self):
+        """Replay saved lighting after start, resume, or a HID reconnect.
+        Saved state is left unchanged: it records what was applied, not what the replay achieved.
+        """
+        with self.lock:
+            if self.discover_hid:
+                self.find_hid()
+            for target in ('keyboard', 'wasd', 'logo', 'lightbar'):
+                try:
+                    self._restore(target, self.lighting.get(target, {}))
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError) as error:
+                    log.warning('Could not restore %s lighting: %s', target, error)
+
+    def _restore(self, target, saved):
+        # A WASD entry recorded by a per-key layout has no mode; the keyboard layout already covers it.
+        if target == 'keyboard' and saved.get('kind') == 'zones' and self.keyboard:
+            self._apply_zones([color(c) for c in saved['colors']])
+        elif target == 'keyboard' and saved.get('kind') == 'per_key' and self.keyboard:
+            per_key = self.lighting['per_key']
+            self._apply_per_key({int(k): color(v) for k, v in per_key['colors'].items()},
+                                integer(per_key.get('brightness', 100), 0, 100))
+        elif saved.get('mode') in self.lighting_modes().get(target, []):
+            if target == 'keyboard':
+                self._apply_keyboard(*effect_params(saved))
+            else:
+                self._apply_device(target, *effect_params(saved))
+
     def command(self, name, p):
         with self.lock:
-            if name in ('ping', 'get_version'):
-                return dict(version=VERSION)
+            if name == 'ping':
+                return {'version': VERSION}
             if name == 'get_all_settings':
                 return self.settings()
-            if name == 'get_supported_features':
-                return dict(available_features=sorted(self.features))
             if name == 'set_lighting':
                 if p.get('target') == 'all':
                     self.set_global_lighting(p)
@@ -372,16 +368,11 @@ class NativeControls:
                 self.set_per_key(p)
                 return self.settings()
             if name == 'set_thermal_profile':
-                return dict(current=self.set_profile(p.get('profile')))
+                return {'current': self.set_profile(p.get('profile'))}
             if name == 'set_fan_speed':
                 self.set_fans(p.get('cpu'), p.get('gpu'))
             elif name == 'set_per_zone_mode':
                 self.set_zones(p)
-            elif name == 'set_four_zone_mode':
-                self.set_effect(p)
-            elif name in ('set_logo_color', 'set_light_color'):
-                rgb = tuple(integer(p.get(k), 0, 255) for k in ('red', 'green', 'blue'))
-                self.set_light('logo' if name == 'set_logo_color' else p.get('target'), rgb, p.get('brightness', 100))
             elif name == 'set_battery_limiter' and self.threshold:
                 if not isinstance(p.get('enabled'), bool):
                     raise ValueError('enabled must be boolean')

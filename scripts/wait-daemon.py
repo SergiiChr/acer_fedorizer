@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 """Bounded startup check: ping the new service before discarding rollback data."""
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
+
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from control_center.client import ControlClient
 
@@ -29,4 +30,4 @@ def wait_for_daemon(path,timeout=10,client_factory=ControlClient,clock=time.mono
 if __name__=='__main__':
     if len(sys.argv)!=2: raise SystemExit('Expected the service socket path')
     try: wait_for_daemon(sys.argv[1])
-    except RuntimeError as error: raise SystemExit(str(error))
+    except RuntimeError as error: raise SystemExit(str(error)) from error

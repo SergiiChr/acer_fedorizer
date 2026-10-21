@@ -1,13 +1,13 @@
 """Lifecycle tests use a private filesystem and fake tools, never the live system."""
 import json
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,11 +79,11 @@ class SetupTests(unittest.TestCase):
 
     def run_setup(self, *args, answer=''):
         return subprocess.run(['bash', str(self.root/'setup.sh'), *args], env=self.env,
-                              input=answer, text=True, capture_output=True, timeout=20)
+                              input=answer, text=True, capture_output=True, timeout=20, check=False)
 
     def run_lightbar(self):
         return subprocess.run(['bash', str(self.root/'scripts/install-lightbar.sh')],
-                              env=self.env, text=True, capture_output=True, timeout=20)
+                              env=self.env, text=True, capture_output=True, timeout=20, check=False)
 
     def supported(self):
         (self.base/'sys/class/dmi/id/product_name').write_text('Predator PH16-72')
@@ -115,6 +115,27 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self.app.stat().st_mode & 0o777,0o755)
         self.assertTrue((self.app/'hardware/controls.py').is_file())
         self.assertTrue((self.base/'group').exists())
+
+    def test_service_is_sandboxed_and_lighting_is_restored_after_sleep(self):
+        result=self.run_setup('install')
+        self.assertEqual(result.returncode,0,result.stderr)
+        units=self.base/'etc/systemd/system'
+        service=(units/'fedorizer-daemon.service').read_text()
+        for line in ('ExecStopPost=/usr/bin/python3 -m hardware.daemon --auto-fans','ExecReload=/usr/bin/kill -USR1 $MAINPID',
+                     'CapabilityBoundingSet=CAP_CHOWN CAP_SETUID CAP_SETGID','ProtectSystem=strict','ProtectHome=read-only',
+                     'DevicePolicy=closed','DeviceAllow=char-hidraw rw','DeviceAllow=char-input r','NoNewPrivileges=yes'):
+            self.assertIn(line+'\n',service)
+        self.assertNotIn('ProtectKernelTunables=',service)
+        resume=(units/'fedorizer-resume.service').read_text()
+        self.assertIn('ExecStart=-/usr/bin/systemctl --no-block reload fedorizer-daemon.service',resume)
+        self.assertIn('WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target',resume)
+        self.assertIn(['systemctl','enable','fedorizer-resume.service'],self.calls())
+        wants=units/'suspend.target.wants/fedorizer-resume.service'
+        wants.parent.mkdir(); wants.symlink_to(units/'fedorizer-resume.service')
+        result=self.run_setup('uninstall')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn(['systemctl','disable','fedorizer-resume.service'],self.calls())
+        self.assertFalse((units/'fedorizer-resume.service').exists() or wants.is_symlink())
 
     def test_overwrite_decline_or_eof_preserves_everything(self):
         self.app.mkdir()
@@ -437,7 +458,7 @@ class SetupTests(unittest.TestCase):
         release=self.base/'etc/os-release'
         release.parent.mkdir(exist_ok=True)
         release.write_text(f'ID={distro}\nVERSION_ID={version}\n')
-        return subprocess.run(['bash',str(copied)],env=self.env,text=True,capture_output=True,timeout=20)
+        return subprocess.run(['bash',str(copied)],env=self.env,text=True,capture_output=True,timeout=20,check=False)
 
     def test_fedora_dependencies_include_native_widgets_and_headers(self):
         self.supported()

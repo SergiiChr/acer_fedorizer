@@ -6,12 +6,13 @@ import sys
 DEFAULT = 0
 SDR_NATIVE = 2
 INTERFACE = "org.gnome.Mutter.DisplayConfig"
+PATH = "/org/gnome/Mutter/DisplayConfig"
 
 
 def panel_status(state, allowed=True):
     _, monitors, logical, _ = state
     panels = [m for m in monitors if m[2].get("is-builtin", False)]
-    result = dict(available=False, enabled=False, connector="", mode="", message="")
+    result = {"available": False, "enabled": False, "connector": "", "mode": "", "message": ""}
     if len(panels) != 1:
         result["message"] = "No unique built-in display was found."
         return result
@@ -84,6 +85,21 @@ def configuration_variant(configuration, GLib):
                         (serial, method, typed_logical, typed_props))
 
 
+def watch(callback):
+    """Call callback on the main loop whenever Mutter reports a monitor change; replaces polling."""
+    from gi.repository import Gio, GLib
+
+    def connected(_, result):
+        try:
+            bus = Gio.bus_get_finish(result)
+        except GLib.Error:
+            return
+        bus.signal_subscribe(INTERFACE, INTERFACE, "MonitorsChanged", PATH, None,
+                             Gio.DBusSignalFlags.NONE, lambda *_: callback())
+
+    Gio.bus_get(Gio.BusType.SESSION, None, connected)
+
+
 def run(action, connector=None):
     try:
         from gi.repository import Gio, GLib
@@ -91,7 +107,7 @@ def run(action, connector=None):
         raise RuntimeError("Display controls require Python 3 with PyGObject (python3-gobject / python3-gi).") from exc
     proxy = Gio.DBusProxy.new_for_bus_sync(
         Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, None,
-        INTERFACE, "/org/gnome/Mutter/DisplayConfig", INTERFACE, None)
+        INTERFACE, PATH, INTERFACE, None)
     if not proxy.get_name_owner():
         raise RuntimeError("Display controls require a GNOME session with Mutter DisplayConfig support.")
     proxy.set_default_timeout(5000)
@@ -120,6 +136,6 @@ if __name__ == "__main__":
         if action not in ("status", "enable", "disable"):
             raise ValueError("Unknown display action.")
         print(json.dumps(run(action, sys.argv[2] if len(sys.argv) > 2 else None)))
-    except Exception as exc:
-        print(json.dumps(dict(available=False, enabled=False, message=str(exc))))
+    except Exception as exc:  # noqa: BLE001 - every failure is reported as JSON status.
+        print(json.dumps({"available": False, "enabled": False, "message": str(exc)}))
         sys.exit(1)
