@@ -6,6 +6,7 @@ from typing import Never
 from unittest.mock import Mock
 
 spec=importlib.util.spec_from_file_location('daemon_ready',Path(__file__).resolve().parents[1]/'scripts/wait-daemon.py')
+assert spec and spec.loader
 ready=importlib.util.module_from_spec(spec); spec.loader.exec_module(ready)
 
 

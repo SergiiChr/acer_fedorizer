@@ -222,8 +222,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual((self.app/'original').stat().st_mode & 0o777,0o600)
         self.assertTrue((self.dkms/'0.2.0/source').is_symlink())
         self.assertEqual((self.dkms/'0.2.0/source').resolve(),self.sources/'laptop-lightbar-0.2.0')
-        for path in ('group','service-enabled','service-running','sys/module/laptop_lightbar'):
-            self.assertTrue((self.base/path).exists(),path)
+        for name in ('group','service-enabled','service-running','sys/module/laptop_lightbar'):
+            self.assertTrue((self.base/name).exists(),name)
         self.assertEqual(list((self.base/'opt').glob('.fedorizer-install-*')),[])
         self.assertEqual((self.base/'lib/modules/older-kernel/extra/laptop_lightbar.ko.zst').read_bytes(),b'older signed module')
         self.assertEqual((self.base/'lib/modules/older-kernel/extra/unrelated.ko').read_bytes(),b'unrelated module')
@@ -336,7 +336,7 @@ class SetupTests(unittest.TestCase):
         result=self.run_setup('install',answer='y\n')
         self.assertNotEqual(result.returncode,0,result.stdout)
         self.assertIn('Previous installation restored.',result.stderr)
-        for path,text in [(old_app,'old GUI'),(old_state,'old state'),(old_unit,'old service')]: self.assertEqual(path.read_text(),text)
+        for old,text in [(old_app,'old GUI'),(old_state,'old state'),(old_unit,'old service')]: self.assertEqual(old.read_text(),text)
         self.assertEqual(old_driver.read_bytes(),b'old driver')
         self.assertTrue((self.base/'var/lib/dkms/damx-lightbar/0.2.0/source').is_symlink())
         self.assertTrue((self.base/'sys/module/damx_lightbar').is_dir())

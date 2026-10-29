@@ -9,9 +9,29 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from control_center.client import ControlClient
-from control_center.models import ZONE_MODE, Fan, FanMode, Fans, Lamp, LightingDraft, PerKey, Settings, full_key_map
+from control_center.client import JSON, ControlClient
+from control_center.models import (
+    ZONE_MODE,
+    Fan,
+    FanMode,
+    Fans,
+    Lamp,
+    LightingDraft,
+    PerKey,
+    Settings,
+    full_key_map,
+    mapping,
+)
 from control_center.telemetry import Telemetry, gpu_fields
+
+type Handler = Callable[[socket.socket,io.BufferedReader],object]
+
+
+def reply(response: bytes) -> Handler:
+    """A server handler that reads one request line and sends response."""
+    def handler(client: socket.socket,stream: io.BufferedReader) -> None:
+        stream.readline(); client.sendall(response)
+    return handler
 
 
 class ClientTests(unittest.TestCase):
@@ -22,7 +42,7 @@ class ClientTests(unittest.TestCase):
         self.server.bind(self.path); self.server.listen()
     def tearDown(self) -> None:
         self.server.close(); self.tmp.cleanup()
-    def serve(self,handler: Callable[[socket.socket,io.BufferedReader],object]) -> threading.Thread:
+    def serve(self,handler: Handler) -> threading.Thread:
         def work() -> None:
             client,_=self.server.accept()
             with client,client.makefile('rb') as stream: handler(client,stream)
@@ -35,25 +55,25 @@ class ClientTests(unittest.TestCase):
                 for i in range(0,len(response),79): client.sendall(response[i:i+79])
         server=self.serve(handler)
         client=ControlClient(self.path)
-        replies=[]
+        replies: list[JSON]=[]
         workers=[threading.Thread(target=lambda i=i:replies.append(client.command(str(i)))) for i in range(4)]
         for worker in workers: worker.start()
         for worker in workers: worker.join(5)
         client.close(); server.join(5)
-        self.assertEqual({r['command'] for r in replies},{'0','1','2','3'})
-        self.assertTrue(all(len(r['value'])==12000 for r in replies))
+        self.assertEqual({mapping(r)['command'] for r in replies},{'0','1','2','3'})
+        self.assertTrue(all(mapping(r)['value']=='x'*12000 for r in replies))
     def test_rejected_command_reconnects_but_closed_client_cannot(self) -> None:
-        worker=self.serve(lambda c,s:(s.readline(),c.sendall(b'{"success":false,"error":"rejected"}\n')))
+        worker=self.serve(reply(b'{"success":false,"error":"rejected"}\n'))
         client=ControlClient(self.path)
         with self.assertRaisesRegex(RuntimeError,'rejected'): client.command('first')
         worker.join(3)
-        worker=self.serve(lambda c,s:(s.readline(),c.sendall(b'{"success":true,"data":{"ok":true}}\n')))
-        self.assertTrue(client.command('second')['ok']); worker.join(3)
+        worker=self.serve(reply(b'{"success":true,"data":{"ok":true}}\n'))
+        self.assertTrue(mapping(client.command('second'))['ok']); worker.join(3)
         client.close()
         with self.assertRaisesRegex(RuntimeError,'closed'): client.command('third')
     def test_malformed_and_oversized_responses_are_rejected(self) -> None:
         for response in (b'{"data":{}}\n', b'x'*262145+b'\n'):
-            worker=self.serve(lambda c,s,response=response:(s.readline(),c.sendall(response)))
+            worker=self.serve(reply(response))
             client=ControlClient(self.path)
             with self.assertRaises(ValueError): client.command('read')
             client.close(); worker.join(3)
@@ -95,7 +115,7 @@ class ModelTests(unittest.TestCase):
         self.assertNotEqual(a.color,b.color)
         a.color='bad'
         with self.assertRaises(ValueError): a.request('keyboard')
-    def test_key_maps_include_only_programmable_lamps(self):
+    def test_key_maps_include_only_programmable_lamps(self) -> None:
         lamps=[Lamp(0,0,0,0,True),Lamp(1,0,0,0,False),Lamp(2,0,0,0,True)]
         self.assertEqual(full_key_map(lamps,{'0':'#FF0000'}),{'0':'ff0000','2':'5bbfbd'})
     def test_settings_parse_contract_and_keep_defaults_for_missing_keys(self) -> None:
@@ -111,15 +131,15 @@ class ModelTests(unittest.TestCase):
         self.assertEqual((empty.fans,empty.laptop_type,empty.per_key.brightness,empty.usb_charging),(None,'Unknown',80,0))
         self.assertIsNone(Settings.parse({'fans':{'cpu':{'mode':'turbo','percent':1}}}).fans)
         with self.assertRaises(ValueError): Settings.parse([])
-    def test_gpu_prefers_average_and_rejects_observed_invalid_power(self):
+    def test_gpu_prefers_average_and_rejects_observed_invalid_power(self) -> None:
         self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405').power,5)
         self.assertIsNone(gpu_fields('40,2,100,12000,N/A,588,175,200,405').power)
         self.assertEqual(gpu_fields('40,2,100,12000,N/A,0,175,200,405').power,0)
         self.assertIsNone(gpu_fields('40,2,100,12000,nan,inf,175,200,405').power)
-    def test_paused_telemetry_never_starts_nvidia_process(self):
+    def test_paused_telemetry_never_starts_nvidia_process(self) -> None:
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=AssertionError('GPU was queried')):
             self.assertIsNone(Telemetry(tmp,tmp).sample(False).gpu)
-    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self):
+    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self) -> None:
         output='40,2,100,12000,5,5,175,200,405\n'
         def run(args: list[str],**_: object) -> Mock:
             return Mock(returncode=0 if 'power.draw.average' not in args[1] else 2,stdout=output)
@@ -138,7 +158,7 @@ class ModelTests(unittest.TestCase):
                 for line in ('cpu 10 0 10 80 0 0 0 0','cpu 20 0 20 160 0 0 0 0','cpu 30 0 30 240 0 0 0 0'):
                     stat.write_text(line+'\n')
                     usage=telemetry.sample().cpu_usage
-                    if line.startswith('cpu 20'): self.assertAlmostEqual(usage,20)
+                    if line.startswith('cpu 20'): self.assertAlmostEqual(usage or 0,20)
             self.assertIsNone(usage)
     def test_battery_estimate_uses_consistent_units(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
