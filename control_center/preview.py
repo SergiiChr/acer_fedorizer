@@ -8,7 +8,6 @@ from .client import JSON
 from .installation import CHECKS, Check, Report
 from .telemetry import Battery, Gpu, Sample
 
-from .client import JsonDict
 
 def layout() -> JSON:
     # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.

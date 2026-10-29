@@ -6,8 +6,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .client import JsonDict
-
 # Newer drivers report average and instant power; older ones only power.draw.
 GPU_QUERIES = (
     ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw.average,power.draw.instant,'

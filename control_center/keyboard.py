@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Keycap geometry from HID LED centers; never changes lamp identities/bindings."""
-from collections.abc import Mapping, Sequence
 from statistics import median
 
 from .models import Lamp

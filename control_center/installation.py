@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .client import ControlClient, JsonDict
+from .client import ControlClient
 
 CHECKS=[('app','Application module'),('daemon','Daemon source files'),
         ('launcher','Desktop launcher'),('desktop','Desktop menu entry'),

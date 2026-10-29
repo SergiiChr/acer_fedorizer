@@ -3,7 +3,7 @@
 """Exercise actual GTK widgets with preview services; no hardware access."""
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))

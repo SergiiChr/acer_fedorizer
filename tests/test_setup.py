@@ -72,7 +72,7 @@ class SetupTests(unittest.TestCase):
             path.write_text('pass\n' if path.suffix=='.py' else 'fixture\n')
         # Share production checks, with only their fixed filesystem root redirected.
         status=(ROOT/'control_center/installation.py').read_text()
-        status=status.replace("=Path('/')", "=Path("+repr(str(self.base))+")")
+        status=patched(status,"Path('/')", "Path("+repr(str(self.base))+")")
         (self.root/'control_center/installation.py').write_text(status)
         shutil.copyfile(ROOT/'control_center/client.py',self.root/'control_center/client.py')
 

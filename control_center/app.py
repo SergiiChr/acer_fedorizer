@@ -16,7 +16,7 @@ gi.require_version('Adw','1')
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import display, installation, preview
-from .client import ControlClient, JsonDict
+from .client import ControlClient
 from .markdown_view import markdown_view
 from .models import (
     EFFECT_NAMES,
@@ -25,6 +25,7 @@ from .models import (
     ZONE_COLORS,
     ZONE_MODE,
     FanMode,
+    Lamp,
     LightingDraft,
     PerKey,
     Settings,
@@ -762,7 +763,7 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 class KeyEditor(Adw.Window):
-    def __init__(self, parent: MainWindow, layout: JsonDict) -> None:
+    def __init__(self, parent: MainWindow, layout: list[Lamp]) -> None:
         super().__init__(title='Per-key lighting',transient_for=parent,modal=True,default_width=1020,default_height=600)
         self.parent=parent
         per_key=parent.state.per_key if parent.state else PerKey()

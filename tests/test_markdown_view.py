@@ -40,6 +40,8 @@ class MarkdownTests(unittest.TestCase):
     def test_real_notice_renders_all_blocks_from_single_source(self) -> None:
         source=(Path(__file__).resolve().parents[1]/'NOTICE.md').read_text()
         rendered: list[str]=[]; tables=0
+        source_bullets=sum(bool(re.match(r'^[-*]\s+\S',line)) for line in source.splitlines())
+        self.assertEqual(sum(isinstance(block,Bullet) for block in blocks(source)),source_bullets)
         for block in blocks(source):
             if isinstance(block,Table):
                 tables+=1
