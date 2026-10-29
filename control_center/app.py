@@ -2,6 +2,7 @@
 """GTK4/libadwaita control center; hardware requests stay in the existing daemon."""
 import contextlib
 import copy
+import dataclasses
 import math
 import queue
 import threading
@@ -88,10 +89,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.connect('realize',lambda *_: self.get_surface().connect('notify::state',self.surface_changed))
         if demo:
             self.receive_state(self.client.command('get_all_settings'),None)
-            self.receive_metrics(preview.sample())
+            sample=preview.sample()
+            self.receive_sample(sample); self.receive_battery(sample.battery)
             self.set_layout(preview.layout())
             self.receive_installation_status(preview.installation_status(),None)
-            self.receive_display({'available': True,'enabled': False,'connector': 'eDP-1','mode': 'default','message': 'Built-in display · Native SDR supported'})
+            self.receive_display(display.PanelStatus(True,False,'eDP-1','default','Built-in display · Native SDR supported'))
             for i in range(60):
                 self.cpu_chart.sample(25+8*math.sin(i*.18)+3*math.sin(i*.7))
                 self.gpu_chart.sample(None)
@@ -335,7 +337,7 @@ class MainWindow(Adw.ApplicationWindow):
         line.append(button('Refresh display status',lambda *_: self.refresh_display(),'flat')); page.append(line)
         note=Adw.PreferencesGroup(title='About this setting',description='Changes are saved by GNOME for future sessions. This does not select an ICC profile or enable HDR. The control is unavailable while HDR is selected or the built-in panel is inactive.')
         page.append(note)
-        self.display_state={}
+        self.display_state=display.PanelStatus()
 
     def build_diagnostics(self) -> None:
         page=self.pages['diagnostics']
@@ -390,16 +392,16 @@ class MainWindow(Adw.ApplicationWindow):
                 for css in ('success','error'): indicator.remove_css_class(css)
                 indicator.add_css_class('dim-label')
             return
-        visible={check['key'] for check in report['checks']}
+        visible={check.key for check in report.checks}
         for key,(row,_) in self.status_rows.items(): row.set_visible(key in visible)
-        for check in report['checks']:
-            row,indicator=self.status_rows[check['key']]
-            ok=check['ok']
+        for check in report.checks:
+            row,indicator=self.status_rows[check.key]
+            ok=check.ok
             indicator.set_from_icon_name('checkbox-checked-symbolic' if ok is True else 'checkbox-symbolic' if ok is False else 'checkbox-mixed-symbolic')
             for css in ('success','error','dim-label'): indicator.remove_css_class(css)
             indicator.add_css_class('success' if ok is True else 'error' if ok is False else 'dim-label')
-            row.set_subtitle(('OK' if ok is True else 'Failed' if ok is False else 'Info')+' · '+check['detail'])
-        summary='All checks passed' if report['healthy'] else 'Some checks need attention'
+            row.set_subtitle(('OK' if ok is True else 'Failed' if ok is False else 'Info')+' · '+check.detail)
+        summary='All checks passed' if report.healthy else 'Some checks need attention'
         timestamp='10:30:00' if self.demo else GLib.DateTime.new_now_local().format('%H:%M:%S')
         self.status_group.set_description(summary+' · Checked '+timestamp+(' · Preview data' if self.demo else ''))
 
@@ -419,7 +421,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.polling or self.pending or not self.on_screen(): return True
         if self.demo:
             self.receive_state(self.client.command('get_all_settings'),None)
-            self.receive_metrics(preview.sample(self.gpu_enabled))
+            self.receive_sample(preview.sample(self.gpu_enabled))
             return True
         self.polling=True
         overview=self.stack.get_visible_child_name()=='overview'
@@ -427,13 +429,15 @@ class MainWindow(Adw.ApplicationWindow):
         def work() -> tuple[JsonDict | None, str | None, JsonDict]:
             try: state,error=self.client.command('get_all_settings'),None
             except (OSError,ValueError,RuntimeError) as exc: state,error=None,str(exc)
-            metrics=self.telemetry.sample(gpu) if overview else {'battery': self.telemetry.battery()}
-            return state,error,metrics
-        def received(result: tuple[JsonDict | None, str | None, JsonDict] | None, error: str | None) -> None:
+            sample=self.telemetry.sample(gpu) if overview else None
+            return state,error,sample,sample.battery if sample else self.telemetry.battery()
+        def received(result,error):
             self.polling=False
             if error: self.receive_state(None,error); return
-            state,error,metrics=result
-            self.receive_state(state,error); self.receive_metrics(metrics)
+            state,error,sample,battery=result
+            self.receive_state(state,error)
+            if sample: self.receive_sample(sample)
+            self.receive_battery(battery)
         self.async_call(work,received)
         return True
 
@@ -513,37 +517,37 @@ class MainWindow(Adw.ApplicationWindow):
             self.capability_text.set_text('  ·  '.join(feature.replace('_',' ').title() for feature in features))
         finally: self.updating=False
 
-    def receive_metrics(self, metrics: JsonDict) -> None:
-        if 'cpu_usage' in metrics:
-            self.cpu_value.set_text(number_text(metrics.get('cpu_usage'),'%',1,missing='Sampling…'))
-            self.cpu_detail.set_text('Temperature '+number_text(metrics.get('cpu_temperature'),'°C'))
-            self.cpu_memory.set_text('Memory · '+number_text(metrics.get('memory_used'),' GiB',1)+' / '+number_text(metrics.get('memory_total'),' GiB',1))
-            self.cpu_chart.sample(metrics.get('cpu_usage'))
-            gpu=metrics.get('gpu') if self.gpu_enabled else None
-            self.gpu_value.set_text(number_text(gpu.get('temperature'),'°C') if gpu else 'Unavailable' if self.gpu_enabled else 'Paused')
-            self.gpu_detail.set_text(('Usage '+number_text(gpu.get('usage'),'%')+' · '+number_text(gpu.get('power'),' W',1)) if gpu else 'Waiting for NVIDIA telemetry' if self.gpu_enabled else 'Monitoring is off to save power')
-            self.gpu_chart.sample(gpu.get('usage') if gpu else None)
-            used,total=(gpu.get('memory_used'),gpu.get('memory_total')) if gpu else (None,None)
-            self.vram.set_fraction(min(1,used/total) if used is not None and total else 0)
-            self.vram.set_text(f'VRAM · {used/1024:.1f} / {total/1024:.1f} GiB' if used is not None and total else 'VRAM · unavailable' if self.gpu_enabled else 'VRAM · monitoring paused')
-            cores=metrics.get('cores',[])
-            if len(cores)!=len(self.core_labels):
-                while self.core_grid.get_first_child(): self.core_grid.remove(self.core_grid.get_first_child())
-                self.core_labels=[]
-                for _ in cores:
-                    value=label('','core-pill'); self.core_labels.append(value); self.core_grid.append(value)
-            for i,(widget,value) in enumerate(zip(self.core_labels,cores,strict=True)):
-                widget.set_text(f'Core {i+1:02d}  {value:.2f} GHz')
-        battery=metrics.get('battery',{})
-        capacity=battery.get('capacity')
+    def receive_sample(self,sample):
+        self.cpu_value.set_text(number_text(sample.cpu_usage,'%',1,missing='Sampling…'))
+        self.cpu_detail.set_text('Temperature '+number_text(sample.cpu_temperature,'°C'))
+        self.cpu_memory.set_text('Memory · '+number_text(sample.memory_used,' GiB',1)+' / '+number_text(sample.memory_total,' GiB',1))
+        self.cpu_chart.sample(sample.cpu_usage)
+        gpu=sample.gpu if self.gpu_enabled else None
+        self.gpu_value.set_text(number_text(gpu.temperature,'°C') if gpu else 'Unavailable' if self.gpu_enabled else 'Paused')
+        self.gpu_detail.set_text(('Usage '+number_text(gpu.usage,'%')+' · '+number_text(gpu.power,' W',1)) if gpu else 'Waiting for NVIDIA telemetry' if self.gpu_enabled else 'Monitoring is off to save power')
+        self.gpu_chart.sample(gpu.usage if gpu else None)
+        used,total=(gpu.memory_used,gpu.memory_total) if gpu else (None,None)
+        self.vram.set_fraction(min(1,used/total) if used is not None and total else 0)
+        self.vram.set_text(f'VRAM · {used/1024:.1f} / {total/1024:.1f} GiB' if used is not None and total else 'VRAM · unavailable' if self.gpu_enabled else 'VRAM · monitoring paused')
+        if len(sample.cores)!=len(self.core_labels):
+            while child:=self.core_grid.get_first_child(): self.core_grid.remove(child)
+            self.core_labels=[]
+            for _ in sample.cores:
+                value=label('','core-pill'); self.core_labels.append(value); self.core_grid.append(value)
+        for i,(widget,value) in enumerate(zip(self.core_labels,sample.cores,strict=True)):
+            widget.set_text(f'Core {i+1:02d}  {value:.2f} GHz')
+
+    def receive_battery(self,battery):
+        capacity=battery.capacity if battery else None
+        hours=battery.hours if battery else None
         self.battery_value.set_text(number_text(capacity,'%',0,missing='No battery'))
         self.battery_progress.set_fraction(max(0,min(1,capacity/100)) if capacity is not None else 0)
-        hours=battery.get('hours')
-        estimate=f' · {int(hours)}h {int(hours*60)%60:02d}m '+('until full' if battery.get('status')=='Charging' else 'remaining') if hours is not None else ''
-        self.battery_status.set_text(battery.get('status','Unavailable')+estimate)
-        for key,widget in self.battery_labels.items():
-            value=battery.get(key)
-            widget.set_text(number_text(value,'%',1) if key=='health' else number_text(value,'',0) if key=='cycles' else str(value or 'Unavailable'))
+        estimate=f' · {int(hours)}h {int(hours*60)%60:02d}m '+('until full' if battery and battery.status=='Charging' else 'remaining') if hours is not None else ''
+        self.battery_status.set_text((battery.status if battery else 'Unavailable')+estimate)
+        self.battery_labels['health'].set_text(number_text(battery.health if battery else None,'%',1))
+        self.battery_labels['cycles'].set_text(number_text(battery.cycles if battery else None,'',0))
+        self.battery_labels['model'].set_text(battery.model if battery and battery.model else 'Unavailable')
+        self.battery_labels['manufacturer'].set_text(battery.manufacturer if battery and battery.manufacturer else 'Unavailable')
 
     def gpu_toggled(self, *_: object) -> None:
         self.gpu_enabled=self.gpu_switch.get_active()
@@ -680,26 +684,26 @@ class MainWindow(Adw.ApplicationWindow):
     def refresh_display(self) -> None:
         if self.display_pending: return
         if self.demo:
-            self.receive_display(self.display_state or {'available': True,'enabled': False,'connector': 'eDP-1','mode': 'default','message': 'Preview panel'}); return
+            self.receive_display(self.display_state); return
         self.display_pending=True
         def done(result: JsonDict | None, error: str | None) -> None:
             self.display_pending=False
-            self.receive_display(result or {'available': False,'enabled': False,'message': error or 'Unavailable'})
+            self.receive_display(result or display.PanelStatus(message=error or 'Unavailable'))
         self.async_call(lambda:display.run('status'),done)
     def receive_display(self, state: JsonDict) -> None:
         self.display_state=state
         self.updating=True
-        self.display_switch.set_active(state.get('enabled',False))
-        self.display_switch.set_sensitive(state.get('available',False))
-        self.display_connector.set_text(state.get('connector') or 'Unavailable')
-        self.display_mode.set_text({'default':'Default SDR','sdr-native':'Native SDR','bt2100':'HDR'}.get(state.get('mode'),'Unavailable'))
-        self.display_note.set_text(state.get('message',''))
+        self.display_switch.set_active(state.enabled)
+        self.display_switch.set_sensitive(state.available)
+        self.display_connector.set_text(state.connector or 'Unavailable')
+        self.display_mode.set_text({'default':'Default SDR','sdr-native':'Native SDR','bt2100':'HDR'}.get(state.mode,'Unavailable'))
+        self.display_note.set_text(state.message)
         self.updating=False
     def display_toggled(self, row: Adw.SwitchRow, *_: object) -> None:
         if self.updating: return
         enabled=row.get_active()
         if self.demo:
-            self.receive_display(dict(self.display_state,enabled=enabled,mode='sdr-native' if enabled else 'default')); return
+            self.receive_display(dataclasses.replace(self.display_state,enabled=enabled,mode='sdr-native' if enabled else 'default')); return
         row.set_sensitive(False)
         self.display_pending=True
         def done(result: JsonDict | None, error: str | None) -> None:
@@ -708,7 +712,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast.add_toast(Adw.Toast(title='Display change failed: '+error,timeout=8))
                 self.refresh_display()
             else: self.receive_display(result)
-        self.async_call(lambda:display.run('enable' if enabled else 'disable',self.display_state.get('connector')),done)
+        self.async_call(lambda:display.run('enable' if enabled else 'disable',self.display_state.connector),done)
 
     def show_credits(self) -> None:
         window=Adw.Window(title='Licenses and credits',transient_for=self,modal=True,default_width=760,default_height=660)

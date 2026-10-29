@@ -98,21 +98,22 @@ class ModelTests(unittest.TestCase):
     def test_key_maps_include_only_programmable_lamps(self) -> None:
         lamps=[{'id': 0,'programmable': True},{'id': 1,'programmable': False},{'id': 2,'programmable': True}]
         self.assertEqual(full_key_map(lamps,{'0':'#FF0000'}),{'0':'ff0000','2':'5bbfbd'})
-    def test_gpu_prefers_average_and_rejects_observed_invalid_power(self) -> None:
-        self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405')['power'],5)
-        self.assertIsNone(gpu_fields('40,2,100,12000,N/A,588,175,200,405')['power'])
-        self.assertEqual(gpu_fields('40,2,100,12000,N/A,0,175,200,405')['power'],0)
-        self.assertIsNone(gpu_fields('40,2,100,12000,nan,inf,175,200,405')['power'])
-    def test_paused_telemetry_never_starts_nvidia_process(self) -> None:
+    def test_gpu_prefers_average_and_rejects_observed_invalid_power(self):
+        self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405').power,5)
+        self.assertIsNone(gpu_fields('40,2,100,12000,N/A,588,175,200,405').power)
+        self.assertEqual(gpu_fields('40,2,100,12000,N/A,0,175,200,405').power,0)
+        self.assertIsNone(gpu_fields('40,2,100,12000,nan,inf,175,200,405').power)
+    def test_paused_telemetry_never_starts_nvidia_process(self):
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=AssertionError('GPU was queried')):
-            self.assertIsNone(Telemetry(tmp,tmp).sample(False)['gpu'])
-    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self) -> None:
+            self.assertIsNone(Telemetry(tmp,tmp).sample(False).gpu)
+    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self):
         output='40,2,100,12000,5,5,175,200,405\n'
         def run(args: list[str],**_: object) -> Mock:
             return Mock(returncode=0 if 'power.draw.average' not in args[1] else 2,stdout=output)
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=run) as process:
             telemetry=Telemetry(tmp,tmp)
-            self.assertEqual(telemetry.gpu()['temperature'],40)
+            gpu=telemetry.gpu()
+            self.assertEqual(gpu.temperature if gpu else None,40)
             self.assertEqual(process.call_count,2)
             telemetry.gpu()
             self.assertEqual(process.call_count,3)
@@ -123,7 +124,7 @@ class ModelTests(unittest.TestCase):
             with patch('control_center.telemetry.time.monotonic',side_effect=[0,2,10]):
                 for line in ('cpu 10 0 10 80 0 0 0 0','cpu 20 0 20 160 0 0 0 0','cpu 30 0 30 240 0 0 0 0'):
                     stat.write_text(line+'\n')
-                    usage=telemetry.sample()['cpu_usage']
+                    usage=telemetry.sample().cpu_usage
                     if line.startswith('cpu 20'): self.assertAlmostEqual(usage,20)
             self.assertIsNone(usage)
     def test_battery_estimate_uses_consistent_units(self) -> None:
@@ -132,5 +133,6 @@ class ModelTests(unittest.TestCase):
             for name,value in {'type':'Battery','status':'Discharging','capacity':'50','energy_now':'30000000','energy_full':'60000000','energy_full_design':'65000000','power_now':'10000000'}.items():
                 (battery/name).write_text(value)
             sample=Telemetry(tmp,tmp).battery()
-            self.assertEqual(sample['hours'],3)
-            self.assertAlmostEqual(sample['health'],600/6.5)
+            assert sample is not None and sample.health is not None
+            self.assertEqual(sample.hours,3)
+            self.assertAlmostEqual(sample.health,600/6.5)

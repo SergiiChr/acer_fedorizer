@@ -5,7 +5,7 @@ import os
 import socket
 import threading
 
-JsonDict = dict[str, object]
+type JSON = dict[str, JSON] | list[JSON] | str | int | float | bool | None
 
 # Safe to repeat: they never change hardware state.
 READ_COMMANDS = frozenset({'ping', 'get_all_settings', 'get_keyboard_layout'})
@@ -19,7 +19,7 @@ class ControlClient:
         self._lock = threading.Lock()
         self._closed = False
 
-    def command(self, command: str, params: JsonDict | None = None) -> JsonDict:
+    def command(self, command: str, params: dict[str, JSON] | None = None) -> JSON:
         payload = json.dumps({'command': command, 'params': params or {}}).encode() + b'\n'
         if len(payload) > 65536:
             raise ValueError('Request exceeds framing limit')
@@ -36,7 +36,7 @@ class ControlClient:
                     raise
             return self._exchange(payload)
 
-    def _exchange(self, payload: bytes) -> JsonDict:
+    def _exchange(self, payload: bytes) -> JSON:
         try:
             if self._socket is None:
                 self._socket = socket.socket(socket.AF_UNIX)
@@ -56,7 +56,7 @@ class ControlClient:
             line, remainder = bytes(result).split(b'\n', 1)
             if remainder:
                 raise ValueError('Unexpected data after response')
-            response = json.loads(line)
+            response: JSON = json.loads(line)
             if not isinstance(response, dict) or not isinstance(response.get('success'), bool):
                 raise ValueError('Invalid hardware service response')
             if not response['success']:

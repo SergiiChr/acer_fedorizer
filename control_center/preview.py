@@ -4,7 +4,8 @@ import copy
 import json
 from pathlib import Path
 
-from .installation import CHECKS
+from .installation import CHECKS, Check, Report
+from .telemetry import Battery, Gpu, Sample
 
 from .client import JsonDict
 
@@ -38,17 +39,20 @@ class PreviewClient:
     def close(self) -> None: pass
 
 
-def sample(gpu: bool = False) -> JsonDict:
-    return {'cpu_usage': 18.4,'cpu_temperature': 54,'memory_used': 9.8,'memory_total': 31.1,
-                'cores': [2.1,2.3,2.2,2.5,2.1,2.4,2.2,2.3]+[1.3+(i%4)/10 for i in range(16)],
-                'gpu': {'temperature': 42,'usage': 3,'memory_used': 486,'memory_total': 12282,'power': 5.2,'core': 210,'memory_clock': 405} if gpu else None,
-                'battery': {'capacity': 78,'status': 'Charging','health': 97,'hours': 0.72,'cycles': 126,'manufacturer': 'SMP','model': 'AP21D8M'}}
+BATTERY=Battery(capacity=78,status='Charging',health=97,hours=0.72,cycles=126,manufacturer='SMP',model='AP21D8M')
 
 
-def installation_status():
-    return {'model': 'Predator PH16-72','kernel': '7.2.11-200.fc44.x86_64','installed': True,'healthy': True,
-                'checks': [{'key': key,'title': title,'ok': True,
-                             'detail': 'Running.' if key=='running' else 'Responding.' if key=='ping' else
-                             'Enabled.' if key=='enabled' else 'Loaded.' if key=='module' else
-                             'Installed for the running kernel.' if key=='dkms' else 'Available.' if key=='socket' else 'Installed.'}
-                        for key,title in CHECKS]}
+def sample(gpu: bool=False) -> Sample:
+    return Sample(cpu_usage=18.4,cpu_temperature=54,memory_used=9.8,memory_total=31.1,
+                  cores=[2.1,2.3,2.2,2.5,2.1,2.4,2.2,2.3]+[1.3+(i%4)/10 for i in range(16)],
+                  gpu=Gpu(temperature=42,usage=3,memory_used=486,memory_total=12282,power=5.2,core=210,memory_clock=405) if gpu else None,
+                  battery=BATTERY)
+
+
+def installation_status() -> Report:
+    return Report(model='Predator PH16-72',kernel='7.2.11-200.fc44.x86_64',installed=True,healthy=True,
+                  checks=[Check(key,title,True,
+                                'Running.' if key=='running' else 'Responding.' if key=='ping' else
+                                'Enabled.' if key=='enabled' else 'Loaded.' if key=='module' else
+                                'Installed for the running kernel.' if key=='dkms' else 'Available.' if key=='socket' else 'Installed.')
+                          for key,title in CHECKS])
