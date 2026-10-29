@@ -2,17 +2,19 @@
 import importlib.util
 import unittest
 from pathlib import Path
+from typing import Never
 from unittest.mock import Mock
 
 spec=importlib.util.spec_from_file_location('daemon_ready',Path(__file__).resolve().parents[1]/'scripts/wait-daemon.py')
+assert spec and spec.loader
 ready=importlib.util.module_from_spec(spec); spec.loader.exec_module(ready)
 
 
 class DaemonReadyTests(unittest.TestCase):
-    def test_delayed_start_retries_only_ping_then_accepts_ready_service(self):
+    def test_delayed_start_retries_only_ping_then_accepts_ready_service(self) -> None:
         now=[0.0]; clients=[]
         outcomes=[FileNotFoundError('not ready'),ConnectionRefusedError('starting'),{'version':'test'}]
-        def factory(path,timeout):
+        def factory(path: str,timeout: float) -> Mock:
             client=Mock()
             outcome=outcomes.pop(0)
             if isinstance(outcome,Exception): client.command.side_effect=outcome
@@ -24,19 +26,19 @@ class DaemonReadyTests(unittest.TestCase):
             client.command.assert_called_once_with('ping'); client.close.assert_called_once()
         self.assertAlmostEqual(now[0],.2)
 
-    def test_invalid_response_is_not_a_healthy_service(self):
+    def test_invalid_response_is_not_a_healthy_service(self) -> None:
         now=[0.0]
         client=Mock(); client.command.return_value={'unrelated':'response'}
         with self.assertRaisesRegex(RuntimeError,'Invalid daemon ping response'):
             ready.wait_for_daemon('test.sock',.2,lambda *a,**k:client,lambda:now[0],lambda duration:now.__setitem__(0,now[0]+duration))
         self.assertEqual(client.close.call_count,client.command.call_count)
 
-    def test_connection_timeout_respects_overall_deadline(self):
+    def test_connection_timeout_respects_overall_deadline(self) -> None:
         now=[0.0]; timeouts=[]
-        def factory(path,timeout):
+        def factory(path: str,timeout: float) -> Mock:
             timeouts.append(timeout)
             client=Mock()
-            def command(name):
+            def command(name: str) -> Never:
                 now[0]+=timeout
                 raise TimeoutError('not responding')
             client.command.side_effect=command

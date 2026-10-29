@@ -1,65 +1,67 @@
 # Development
 
-Use system Python 3, PyGObject/Pycairo, GTK 4.10+, and libadwaita 1.4+.
-No pip packages or frontend compilation are required. `./run.sh` launches the
-app; `./run.sh --preview` uses labelled deterministic data and no hardware/session
-connections. `python3 -m hardware.daemon --inspect` is a live read-only diagnostic,
-not an offline test. Do not use diagnostic exercise mode for routine checks.
+Working rules, the source map, and `scripts/check.sh` are described in [AGENTS.md](AGENTS.md), and code rules in [CODING.md](CODING.md); they apply to people too.
 
-## Source map
+## Running from source
 
-- `control_center/app.py`: libadwaita windows and async actions; no root operations.
-- `control_center/widgets.py`: mode tiles, charts, and geometry-based keyboard preview.
-- `control_center/markdown_view.py`: escaped Markdown rendering for the single-source `NOTICE.md` credits.
-- `control_center/installation.py`: shared read-only status checks for setup and GTK; no sudo.
-- `control_center/client.py`: bounded, serialized JSON socket client.
-- `control_center/models.py`: independent lighting drafts and color validation.
-- `control_center/telemetry.py`: read-only sysfs/proc sampling; NVIDIA opt-in only.
-- `control_center/display.py`: unprivileged Mutter session-bus bridge.
-- `control_center/preview.py`: isolated preview data for screenshots and UI tests.
-- `hardware/`: preserved sysfs/HID controls, socket daemon, dedicated-button listener.
-- `native-lightbar/`: separate, strictly model-scoped GPLv2 kernel module.
-- `scripts/install-transaction.sh`: preflight driver build and rollback of app-owned files, groups, drivers, and service states.
-- `scripts/wait-daemon.py`: bounded, read-only service readiness ping before installation commits.
-- `scripts/legacy-install.sh`: names retained solely to remove earlier installations.
+You need system Python 3.12+, PyGObject/Pycairo, GTK 4.10+, and libadwaita 1.4+.
+There are no pip packages and no frontend build step.
 
-The app uses `/run/acer-fedorizer.sock` and `/var/lib/acer-fedorizer/lighting.json`.
-The root service is `fedorizer-daemon.service`, socket group `fedorizer`, and app
-files live under `/opt/acer-fedorizer`. Requests contain `command` and `params`;
-responses contain `success` plus `data` or `error`. Request limit is 65,536 bytes
-including newline; client responses are bounded at 262,144 bytes. The backend
-validates all writes independently of the GUI and serializes hardware access.
+- `./run.sh` starts the real app without installing it.
+- `./run.sh --preview` uses labelled fake data and never connects to the hardware service or the desktop session.
+- `./run.sh --screenshots docs/screenshots` renders the README screenshots from preview data.
+- `python3 -m hardware.daemon --inspect` reads live hardware without changing it.
+- `scripts/native-selftest.py --exercise` sends real commands; never use it for routine checks.
 
-## Checks
+## Service and socket
 
-```sh
-bash -n setup.sh run.sh scripts/*.sh
-python3 -m unittest discover -s tests -v
-GSK_RENDERER=cairo python3 scripts/ui-smoke.py
-GSK_RENDERER=cairo ./run.sh --screenshots docs/screenshots
-scripts/package.sh
-```
+| Item | Value |
+| --- | --- |
+| Service | `fedorizer-daemon.service` (root, sandboxed) |
+| Socket | `/run/acer-fedorizer.sock`, mode 0660, owned by the installing user and group `fedorizer` |
+| Saved lighting | `/var/lib/acer-fedorizer/lighting.json` |
+| App files | `/opt/acer-fedorizer` |
 
-UI checks require a graphical display; CI uses Xvfb and a private D-Bus session.
-Tests use temporary sysfs trees, fake system/package commands, and local sockets.
-Installer failure tests cover missing headers, build/signing, driver install/load,
-service startup/health/readiness, legacy rollback, and retained recovery data on restore failure.
-They do not install the app or change firmware. UI smoke tests check real widget
-navigation, profile-name/hardware mappings, single-selection mode tiles, fan-slider sensitivity, draft independence, refresh preservation, palette restrictions, and
-no startup writes, rendered credits/links, asynchronous status/error states, target-specific Wave color, per-key brightness preservation across edits/apply/reopen, and four zones through the single lighting Apply. Preview screenshots are actual GTK renders, visibly labelled.
+Requests are one JSON line with `command` and `params`.
+Responses contain `success` plus `data` or `error`.
+A request may be at most 65,536 bytes including the newline; the client accepts responses up to 262,144 bytes.
+The daemon validates every write itself, independently of the GUI, and handles one hardware request at a time.
+The GUI and daemon ship together; when running the GUI from source, install the daemon from the same revision.
 
-No polling may overwrite editing drafts or apply a setting automatically. Worker
-threads must not touch GTK. Stop timers on window closure, keep GPU sampling
-opt-in and off hidden pages, and never give the GUI elevated credentials.
-Hardware command acceptance is not visual verification of a lighting effect.
-Python code must pass `ruff check .` with the repository `ruff.toml`.
+The service sandbox gives a read-only system, access only to hidraw and input devices, and no network.
+It keeps only `CAP_CHOWN` to hand over the socket, and `CAP_SETUID`/`CAP_SETGID` to start the GUI as the desktop user when the Predator button is pressed.
+Writes to sysfs and hidraw work because root owns those files.
+These sandbox limits are not yet verified on hardware; check `journalctl -u fedorizer-daemon.service` after installing.
 
-## Packaging and notices
+## Installation transaction
 
-`scripts/package.sh` includes all application and corresponding kernel-module
-source, scripts, tests, docs, and license terms in one archive. Release output is
-ignored under `publish/`. Setup/package cleanup removes Python caches and local
-kernel build output, retaining source and required notices. No SDK/runtime build
-cache is part of the application. Update NOTICE.md for borrowed code/assets and
-system dependencies; preserve upstream authorship even when names are removed
-from live module identifiers. Keep full license texts intact.
+`scripts/install.sh` with `scripts/install-transaction.sh` makes install all-or-nothing for the files the app owns:
+
+1. Stage the new app and build and sign the lightbar module in private DKMS trees before removing anything.
+2. Snapshot the current app, settings, service states, groups, and driver registrations.
+3. Remove the previous installation, including old-name installs through `scripts/legacy-install.sh`, so two daemons never compete.
+4. Install, then wait for the new service to answer a bounded ping (`scripts/wait-daemon.py`).
+5. On any failure, restore the snapshot; if the restore itself fails, keep the snapshot archive and report where it is.
+
+The app is staged in a new directory and moved into place, so updating a running app does not fail.
+Installed OS packages are not rolled back.
+A killed process or power loss mid-install may need manual recovery from the kept snapshot.
+
+Installation checks in `control_center/installation.py` are shared by System Settings and `setup.sh status`.
+They read files, systemd states, a socket ping, the loaded module, and DKMS status for the running kernel, all without sudo.
+They never look for HID devices, change firmware, or load or unload modules.
+
+## What the tests cover
+
+Unit tests use temporary sysfs trees, fake system and package commands, and local sockets.
+Installer tests simulate failures at each step: missing headers, build or signing, driver install or load, service start, health, readiness, legacy cleanup, and a failed restore.
+They never install the app or change firmware.
+
+`scripts/ui-smoke.py` drives real GTK widgets with preview data.
+It checks navigation, profile and fan mappings, single-choice mode tiles, fan slider state, independent drafts, that refresh keeps drafts, palette limits, no writes at startup, credits and links, async status and errors, Wave colors per device, per-key brightness across edit/apply/reopen, and four-zone apply.
+
+## Packaging
+
+`scripts/package.sh` writes one source-complete archive and its checksum to `publish/`, which git ignores.
+The archive holds the app, daemon, kernel module source, scripts, tests, docs, and license texts.
+Setup and packaging remove Python caches and local kernel build output.

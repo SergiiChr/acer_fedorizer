@@ -21,7 +21,9 @@ log = logging.getLogger('fedorizer')
 
 
 class RequestHandler(socketserver.StreamRequestHandler):
-    def handle(self):
+    server: 'NativeServer'
+
+    def handle(self) -> None:
         self.request.settimeout(30)
         while True:
             try:
@@ -50,12 +52,12 @@ class RequestHandler(socketserver.StreamRequestHandler):
 class NativeServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, path, controls):
+    def __init__(self, path: str, controls: NativeControls) -> None:
         self.controls = controls
         super().__init__(path, RequestHandler)
 
 
-def watch_hid(controls):
+def watch_hid(controls: NativeControls) -> None:
     """Replay lighting when HID devices appear or disappear, once per burst of events."""
     hotplug = uevents.open_socket()
     while True:
@@ -70,11 +72,11 @@ def watch_hid(controls):
         controls.restore_lighting()
 
 
-def restore_in_background(controls):
+def restore_in_background(controls: NativeControls) -> None:
     threading.Thread(target=controls.restore_lighting, daemon=True, name='restore-lighting').start()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--inspect', action='store_true', help='Read capabilities without starting a server')
     parser.add_argument('--auto-fans', action='store_true', help='Return fans to automatic control and exit')

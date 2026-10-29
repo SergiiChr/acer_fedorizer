@@ -16,16 +16,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hardware.controls import NativeControls
 
 
-def inspect_and_exercise(args, state_file):
+def inspect_and_exercise(args: argparse.Namespace, state_file: str) -> None:
     controls = NativeControls(state_file=state_file)
     print(json.dumps(controls.settings(), indent=2))
     if not args.exercise:
         return
-    commands = [('set_thermal_profile', {'profile': controls.settings()['thermal_profile']['current']}),
-                ('set_fan_speed', {'cpu': 0, 'gpu': 0}),
-                ('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': '0050ff', 'brightness': 80,
-                                  'link_wasd': False}),
-                ('set_lighting', {'target': 'logo', 'mode': 0, 'color': '0050ff', 'brightness': 80})]
+    commands: list[tuple[str, dict[str, object]]] = [
+        ('set_thermal_profile', {'profile': controls.settings()['thermal_profile']['current']}),
+        ('set_fan_speed', {'cpu': 0, 'gpu': 0}),
+        ('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': '0050ff', 'brightness': 80, 'link_wasd': False}),
+        ('set_lighting', {'target': 'logo', 'mode': 0, 'color': '0050ff', 'brightness': 80})]
     if 'lightbar' in controls.features:
         commands.append(('set_lighting', {'target': 'lightbar', 'mode': 0, 'color': '0050ff', 'brightness': 80}))
     failed = False
@@ -41,7 +41,7 @@ def inspect_and_exercise(args, state_file):
         sys.exit(1)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exercise', action='store_true')
     args = parser.parse_args()

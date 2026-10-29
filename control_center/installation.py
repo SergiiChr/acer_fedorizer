@@ -3,6 +3,8 @@
 import os
 import re
 import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from .client import ControlClient
@@ -14,13 +16,34 @@ CHECKS=[('app','Application module'),('daemon','Daemon source files'),
         ('module','Rear lightbar driver loaded'),('dkms','Rear lightbar driver installed for the running kernel')]
 
 
-def collect_status(root=Path('/'), run=subprocess.run):
-    root=Path(root)
-    def path(value): return root/value.lstrip('/')
-    checks=[]
-    def add(key,ok,detail):
-        checks.append({'key': key,'title': dict(CHECKS)[key],'ok': ok,'detail': detail})
-    def command(args):
+@dataclass(frozen=True)
+class Check:
+    """One installation check; ok is None when the result is unknown or informational."""
+    key: str
+    title: str
+    ok: bool | None
+    detail: str
+
+
+@dataclass(frozen=True)
+class Report:
+    model: str
+    kernel: str
+    checks: list[Check]
+    healthy: bool
+    installed: bool
+
+
+type Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+def collect_status(root: str | Path=Path('/'), run: Runner=subprocess.run) -> Report:
+    base=Path(root)
+    def path(value: str) -> Path: return base/value.lstrip('/')
+    checks: list[Check]=[]
+    def add(key: str, ok: bool | None, detail: str) -> None:
+        checks.append(Check(key,dict(CHECKS)[key],ok,detail))
+    def command(args: list[str]) -> tuple[bool | None, str]:
         try:
             result=run(args,capture_output=True,text=True,timeout=5,check=False)
             return result.returncode==0,(result.stdout.strip() or result.stderr.strip())
@@ -34,9 +57,9 @@ def collect_status(root=Path('/'), run=subprocess.run):
            ('desktop','/usr/share/applications/io.github.SergiiChr.AcerFedorizer.desktop',False)]
     for key,filename,executable in files:
         item=path(filename)
-        try: ok=item.is_file() and (not executable or os.access(item,os.X_OK))
+        try: present=item.is_file() and (not executable or os.access(item,os.X_OK))
         except OSError as error: add(key,None,str(error)); continue
-        add(key,ok,'Installed.' if ok else 'Missing or inaccessible.')
+        add(key,present,'Installed.' if present else 'Missing or inaccessible.')
     for key,action,success in [('enabled','is-enabled','Enabled.'),('running','is-active','Running.')]:
         ok,detail=command(['systemctl',action,'fedorizer-daemon.service'])
         add(key,ok,success if ok else detail[:500] or 'Unavailable.')
@@ -60,24 +83,23 @@ def collect_status(root=Path('/'), run=subprocess.run):
             add('dkms',installed,'Installed for '+kernel+'.' if installed else 'Not installed for '+kernel+'.')
         else: add('dkms',None,'Could not read DKMS status: '+(detail[:500] or 'command failed'))
     else: add('module',None,'Not required for this model.')
-    relevant=[c for c in checks if not (c['key']=='module' and model!='Predator PH16-72')]
-    return {'model': model,'kernel': kernel,'checks': checks,'healthy': all(c['ok'] is True for c in relevant),
-                'installed': path('/opt/acer-fedorizer').exists()}
+    relevant=[c for c in checks if not (c.key=='module' and model!='Predator PH16-72')]
+    return Report(model,kernel,checks,all(c.ok is True for c in relevant),path('/opt/acer-fedorizer').exists())
 
 
-def main():
+def main() -> int:
     report=collect_status()
     print('Acer Fedorizer installation status')
-    print('Model: '+report['model']+'\nKernel: '+report['kernel'])
-    if not report['installed']: print('Not installed. Run ./setup.sh install.')
-    for check in report['checks']:
-        print(('OK' if check['ok'] is True else 'FAIL' if check['ok'] is False else 'INFO')+': '+check['title'])
-        if check['ok'] is not True: print('  '+check['detail'])
-    if report['healthy']: print('Installation is healthy.')
+    print('Model: '+report.model+'\nKernel: '+report.kernel)
+    if not report.installed: print('Not installed. Run ./setup.sh install.')
+    for check in report.checks:
+        print(('OK' if check.ok is True else 'FAIL' if check.ok is False else 'INFO')+': '+check.title)
+        if check.ok is not True: print('  '+check.detail)
+    if report.healthy: print('Installation is healthy.')
     else:
         print('Repair: run ./setup.sh install.')
         print('Service logs: journalctl -u fedorizer-daemon.service -b --no-pager -n 30')
-    return 0 if report['healthy'] else 1
+    return 0 if report.healthy else 1
 
 
 if __name__=='__main__': raise SystemExit(main())
