@@ -15,7 +15,7 @@ import errno
 from unittest.mock import MagicMock, Mock
 
 from hardware import uevents
-from hardware.controls import NativeControls
+from hardware.controls import Effect, Lighting, NativeControls
 from hardware.hid import CoverLogo, LampArrayDevice, VendorKeyboard, frame
 from hardware.hotkey import button_pressed
 
@@ -84,7 +84,7 @@ class NativeTests(unittest.TestCase):
         params = {'target': 'logo', 'mode': 1, 'color': 'ff2300', 'brightness': 90, 'speed': 4, 'direction': 1}
         self.controls.command('set_lighting', params)
         self.controls.logo.effect.assert_called_once_with(1, (255,35,0), 4, 90, 1)
-        self.assertEqual('ff2300', self.controls.lighting['logo']['color'])
+        self.assertEqual('ff2300', self.controls.lighting.to_json()['logo']['color'])
         old = self.controls.state_file.read_text()
         self.controls.logo.effect.side_effect = OSError('failed')
         with self.assertRaises(OSError): self.controls.command('set_lighting', dict(params, color='00ff00'))
@@ -99,13 +99,13 @@ class NativeTests(unittest.TestCase):
         c.vendor = Mock()
         c.vendor.MAG_EFFECTS = VendorKeyboard.MAG_EFFECTS
         c.vendor.effect.side_effect = [None, OSError('WASD failed')]
-        c.lighting = {'keyboard': {'color': '0000ff'}}
+        c.lighting = Lighting(keyboard=Effect(0, (0, 0, 255)))
         c._save()
         previous = c.state_file.read_text()
         with self.assertRaises(OSError):
             c.command('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': 'ff0000'})
         self.assertEqual(previous, c.state_file.read_text())
-        self.assertEqual({'keyboard': {'color': '0000ff'}}, c.lighting)
+        self.assertEqual(Lighting(keyboard=Effect(0, (0, 0, 255))), c.lighting)
 
     def test_link_option_validates_before_any_keyboard_write(self) -> None:
         from unittest.mock import Mock
@@ -128,10 +128,10 @@ class NativeTests(unittest.TestCase):
         c.logo.effect.side_effect = OSError('logo disconnected')
         with self.assertRaisesRegex(RuntimeError, 'applied to keyboard, wasd'):
             c.command('set_lighting', {'target': 'all', 'mode': 1, 'color': 'ff0000'})
-        self.assertEqual('ff0000', c.lighting['keyboard']['color'])
-        self.assertEqual('ff0000', c.lighting['wasd']['color'])
-        self.assertNotIn('logo', c.lighting)
-        self.assertNotIn('all', c.lighting)
+        self.assertEqual('ff0000', c.lighting.to_json()['keyboard']['color'])
+        self.assertEqual('ff0000', c.lighting.to_json()['wasd']['color'])
+        self.assertNotIn('logo', c.lighting.to_json())
+        self.assertNotIn('all', c.lighting.to_json())
 
     def test_per_key_validates_full_map_and_scales_brightness(self) -> None:
         from unittest.mock import MagicMock
@@ -145,8 +145,8 @@ class NativeTests(unittest.TestCase):
         keyboard.multi.assert_not_called()
         c.command('set_per_key', {'colors': {'0':'ff0000','1':'0000ff'},'brightness': 50})
         keyboard.multi.assert_called_once_with({0:(128,0,0),1:(0,0,128)})
-        self.assertEqual('per_key', c.lighting['keyboard']['kind'])
-        self.assertEqual('ff0000', c.lighting['per_key']['colors']['0'])
+        self.assertEqual('per_key', c.lighting.to_json()['keyboard']['kind'])
+        self.assertEqual('ff0000', c.lighting.to_json()['per_key']['colors']['0'])
         previous = c.state_file.read_text()
         keyboard.multi.side_effect = OSError('transfer failed')
         with self.assertRaises(OSError):
@@ -282,7 +282,7 @@ class NativeTests(unittest.TestCase):
     def test_effect_failure_is_not_saved_as_success(self):
         with self.assertRaises(ValueError):
             self.controls.command('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': 'ff0000'})
-        self.assertEqual({}, self.controls.lighting)
+        self.assertEqual({}, self.controls.lighting.to_json())
         self.assertFalse((self.root / 'state.json').exists())
 
     def test_fragmented_and_coalesced_requests(self) -> None:
@@ -321,7 +321,7 @@ class NativeTests(unittest.TestCase):
         c.command('set_per_zone_mode', {'zone1': 'ff0000', 'zone2': '00ff00', 'zone3': '0000ff', 'zone4': 'ffffff'})
         c.keyboard.multi.assert_called_once_with({0: (255, 0, 0), 1: (0, 255, 0), 2: (0, 0, 255), 3: (255, 255, 255)})
         c.vendor.effect.assert_called_once_with(0, (255, 0, 0), 5, 100, mag=True)
-        self.assertEqual({'kind': 'zones', 'colors': ['ff0000', '00ff00', '0000ff', 'ffffff']}, c.lighting['keyboard'])
+        self.assertEqual({'kind': 'zones', 'colors': ['ff0000', '00ff00', '0000ff', 'ffffff']}, c.lighting.to_json()['keyboard'])
 
     def test_restore_replays_saved_lighting_without_changing_it(self) -> None:
         c = self.controls
@@ -344,15 +344,54 @@ class NativeTests(unittest.TestCase):
     def test_restore_replays_zones_and_effects(self) -> None:
         c = self.controls
         c.keyboard, c.vendor = self.lamp_keyboard(), Mock()
-        c.lighting = {'keyboard': {'kind': 'zones', 'colors': ['ff0000'] * 4}}
+        c.lighting = Lighting.parse({'keyboard': {'kind': 'zones', 'colors': ['ff0000'] * 4}})
         c.restore_lighting()
         c.keyboard.multi.assert_called_once()
-        c.lighting = {'keyboard': {'mode': 1, 'color': '102030', 'brightness': 40, 'speed': 2, 'direction': 1}}
+        c.lighting = Lighting.parse({'keyboard': {'mode': 1, 'color': '102030', 'brightness': 40, 'speed': 2, 'direction': 1}})
         c.vendor.reset_mock()
         c.restore_lighting()
         c.vendor.effect.assert_called_once_with(1, (16, 32, 48), 2, 40, 1)
 
-    def test_fans_return_to_automatic_even_if_one_write_fails(self) -> None:
+    def test_saved_state_from_earlier_versions_loads_unchanged_and_replays(self):
+        saved = {'per_key': {'colors': {str(i): 'ff0000' for i in range(4)}, 'brightness': 50},
+                 'keyboard': {'kind': 'per_key', 'brightness': 50},
+                 'wasd': {'kind': 'per_key', 'brightness': 50, 'colors': {'0': 'ff0000'}},
+                 'logo': {'mode': 0, 'color': '0000ff', 'brightness': 60, 'speed': 5, 'direction': 1},
+                 'all': {'mode': 1, 'color': '00ff00', 'brightness': 100, 'speed': 5, 'direction': 1}}
+        self.controls.state_file.write_text(json.dumps(saved))
+        c = NativeControls(str(self.root), str(self.controls.state_file), discover_hid=False)
+        self.assertEqual(saved, c.lighting.to_json())
+        self.assertEqual(saved, c.settings()['lighting_state'])
+        c.keyboard, c.vendor, c.logo = self.lamp_keyboard(), Mock(), Mock()
+        c.vendor.MAG_EFFECTS = VendorKeyboard.MAG_EFFECTS
+        c.restore_lighting()
+        c.keyboard.multi.assert_called_once_with(dict.fromkeys(range(4), (128, 0, 0)))
+        c.vendor.effect.assert_not_called()
+        c.logo.effect.assert_called_once_with(0, (0, 0, 255), 5, 60, 1)
+        effect = {'mode': 1, 'color': '102030', 'brightness': 40, 'speed': 2, 'direction': 1, 'link_wasd': False}
+        self.assertEqual({'keyboard': effect}, Lighting.parse({'keyboard': effect}).to_json())
+        zones = {'kind': 'zones', 'colors': ['ff0000', '00ff00', '0000ff', 'ffffff']}
+        self.assertEqual({'keyboard': zones}, Lighting.parse({'keyboard': zones}).to_json())
+
+    def test_invalid_saved_entries_are_dropped_at_load(self):
+        valid = {'mode': 0, 'color': '00ff00', 'brightness': 100, 'speed': 5, 'direction': 1}
+        saved = {'keyboard': {'kind': 'per_key', 'brightness': 50}, 'wasd': valid,
+                 'logo': {'mode': 1, 'color': 'zz0000'}, 'lightbar': 'red', 'all': {'color': '00ff00'},
+                 'per_key': {'colors': {'-1': 'ff0000'}}, 'unknown': {}}
+        self.controls.state_file.write_text(json.dumps(saved))
+        with self.assertLogs('fedorizer', 'WARNING') as logs:
+            c = NativeControls(str(self.root), str(self.controls.state_file), discover_hid=False)
+        self.assertEqual({'wasd': valid}, c.lighting.to_json())
+        self.assertEqual(5, len(logs.output))
+        for broken in ('[]', 'not json'):
+            self.controls.state_file.write_text(broken)
+            self.assertEqual(Lighting(), NativeControls(str(self.root), str(self.controls.state_file),
+                                                        discover_hid=False).lighting)
+        effect = dict(valid, link_wasd='yes')
+        with self.assertLogs('fedorizer', 'WARNING'):
+            self.assertEqual(Lighting(), Lighting.parse({'keyboard': effect}))
+
+    def test_fans_return_to_automatic_even_if_one_write_fails(self):
         (self.hwmon / 'pwm2_enable').write_text('1')
         original = self.controls._write
         def fail_first(path: str | Path, value: object) -> None:
