@@ -41,14 +41,15 @@ def layout() -> list[Lamp]:
     return app.window.layout
 
 def open_editor() -> KeyEditor:
-    editor=app.window.open_editor()
-    assert editor,'Per-key editor did not open'
-    return editor
+    # The layout is already loaded here, so the editor opens at once.
+    app.window.editor=None
+    app.window.open_editor()
+    assert app.window.editor,'Per-key editor did not open'
+    return app.window.editor
 
 def start() -> bool:
-    # The layout loads asynchronously on the first visit to the lighting page.
-    app.window.show_page('lighting')
-    when(lambda:app.window.layout is not None and app.window.connected,checks)
+    # The first settings reply starts loading the keyboard layout.
+    when(lambda:app.window.layout is not None,checks)
     return False
 
 def checks() -> bool:

@@ -121,12 +121,14 @@ class ModelTests(unittest.TestCase):
     def test_settings_parse_contract_and_keep_defaults_for_missing_keys(self) -> None:
         settings=Settings.parse({'available_features':['fan_speed'],'fans':{'cpu':{'mode':'manual','percent':40},'gpu':{'mode':'max','percent':100}},
                                  'battery_limiter':True,'lcd_override':False,'usb_charging':20,'fan_rpm':{'cpu':2100,'gpu':None},
+                                 'lighting_modes':{'keyboard':[0,1,True]},
                                  'lighting_state':{'per_key':{'colors':{'0':'ff0000'},'brightness':250},'keyboard':{'mode':1}}})
         self.assertEqual(settings.fans,Fans(Fan(FanMode.MANUAL,40),Fan(FanMode.MAX,100)))
-        self.assertEqual((settings.battery_limiter,settings.lcd_override,settings.usb_charging),(True,False,20))
+        self.assertEqual((settings.switches['battery_limiter'],settings.switches['lcd_override'],settings.usb_charging),(True,False,20))
         self.assertEqual(settings.fan_rpm,{'cpu':2100})
         self.assertEqual(settings.per_key,PerKey({'0':'ff0000'},100))
-        self.assertEqual(settings.lighting['keyboard'],{'mode':1})
+        self.assertEqual(settings.lighting_modes,{'keyboard':[0,1]})
+        self.assertEqual(settings.lighting['keyboard'].mode,1)
         empty=Settings.parse({})
         self.assertEqual((empty.fans,empty.laptop_type,empty.per_key.brightness,empty.usb_charging),(None,'Unknown',80,0))
         self.assertIsNone(Settings.parse({'fans':{'cpu':{'mode':'turbo','percent':1}}}).fans)

@@ -40,17 +40,20 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
             app.window.close(); app.quit(); return False
         name=names[index]
         app.window.set_default_size(1160,1120 if name=='lighting' else 900)
+        # The lighting page and the keyboard editor show the keyboard layout, so both wait for it.
+        if name in ('lighting','keyboard'): app.window.ensure_layout(lambda _:show(index))
+        else: show(index)
+        return False
+    def show(index: int) -> None:
+        name=names[index]
         target: Gtk.Window | None
-        if name=='keyboard': target=app.window.open_editor()
+        if name=='keyboard': app.window.open_editor(); target=app.window.editor
         elif name=='credits': target=app.window.show_credits()
         else: app.window.show_page(name); target=app.window
         if target: invalidate(target)
-        def capture(attempts: int = 50) -> bool:
-            # The lighting page loads the keyboard layout asynchronously; the keyboard editor needs it too.
-            if name=='lighting' and app.window.layout is None and attempts:
-                GLib.timeout_add(100,capture,attempts-1); return False
+        def capture() -> bool:
             try:
-                if target is None: raise RuntimeError('Keyboard layout is not loaded')
+                if target is None: raise RuntimeError('Per-key editor did not open')
                 save_window(target,directory/(name+'.png'))
                 print(directory/(name+'.png'),flush=True)
                 if name in ('keyboard','credits'): target.close()
@@ -61,6 +64,5 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
             GLib.timeout_add(100,next_page,index+1)
             return False
         GLib.timeout_add(500,capture)
-        return False
     next_page()
     return False

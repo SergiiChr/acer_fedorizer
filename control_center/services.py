@@ -17,8 +17,6 @@ class Services(Protocol):
     """Everything the window reads or changes; every method except watch_display may block and runs on a worker."""
     # True for labelled preview data that never reaches the hardware service or Mutter.
     preview: bool
-    # Check the installation as soon as the window opens instead of on request.
-    check_installation_on_start: bool
     # CPU usage history shown before the first sample arrives.
     cpu_history: tuple[float, ...]
 
@@ -36,7 +34,6 @@ class Services(Protocol):
 class LiveServices:
     """The local hardware service socket, Linux sysfs/proc telemetry, and the GNOME session's Mutter."""
     preview = False
-    check_installation_on_start = False
     cpu_history: tuple[float, ...] = ()
 
     def __init__(self) -> None:

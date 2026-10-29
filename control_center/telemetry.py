@@ -23,8 +23,6 @@ class Gpu:
     memory_used: float | None
     memory_total: float | None
     power: float | None
-    core: float | None
-    memory_clock: float | None
 
 
 @dataclass(frozen=True)
@@ -76,10 +74,10 @@ def gpu_fields(output: str) -> Gpu:
     values = output.strip().splitlines()[0].split(',') if output.strip() else []
     if len(values) != 9:
         raise ValueError('Incomplete GPU sample')
-    temp, usage, used, total, average, instant, maximum, core, memory = map(number, values)
+    temp, usage, used, total, average, instant, maximum, _, _ = map(number, values)
     bound = maximum * 1.15 if maximum and maximum > 0 else 500
     power = next((v for v in (average, instant) if v is not None and v <= bound), None)
-    return Gpu(temp, usage, used, total, power, core, memory)
+    return Gpu(temp, usage, used, total, power)
 
 
 class Telemetry:

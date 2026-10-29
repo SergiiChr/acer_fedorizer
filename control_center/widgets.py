@@ -128,7 +128,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
     def __init__(self, height: int = 220, on_selection: Callable[[int], None] | None = None) -> None:
         super().__init__(content_height=height,hexpand=True)
         self.caps: list[tuple[Lamp, float, float, float, float]]=[]; self.colors: dict[str, str]={}
-        self._selected: set[int]=set(); self.rects: list[tuple[float, float, float, float, int]]=[]
+        self.selected: frozenset[int]=frozenset(); self.rects: list[tuple[float, float, float, float, int]]=[]
         self.on_selection=on_selection
         self.set_draw_func(self.draw)
         if on_selection:
@@ -136,9 +136,6 @@ class KeyboardCanvas(Gtk.DrawingArea):
             click.connect('pressed',self.clicked)
             self.add_controller(click)
             self.set_tooltip_text('Click keys to select them. LED geometry comes from the keyboard.')
-    @property
-    def selected(self) -> frozenset[int]:
-        return frozenset(self._selected)
     def set_layout(self, lamps: list[Lamp], colors: dict[str, str]) -> None:
         # Keycap geometry depends only on the lamps, so it is computed once rather than on every redraw.
         self.caps=keycaps(lamps)
@@ -148,11 +145,9 @@ class KeyboardCanvas(Gtk.DrawingArea):
         self.queue_draw()
     def select(self, ids: Iterable[int]) -> None:
         """Replace the selection and report its size to on_selection."""
-        self._selected=set(ids)
+        self.selected=frozenset(ids)
         self.queue_draw()
-        if self.on_selection: self.on_selection(len(self._selected))
-    def clear_selection(self) -> None:
-        self.select(())
+        if self.on_selection: self.on_selection(len(self.selected))
     def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
         self.rects=[]
         if not self.caps:
@@ -168,12 +163,12 @@ class KeyboardCanvas(Gtk.DrawingArea):
         cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
         layout=PangoCairo.create_layout(cr)
         for lamp,kx,ky,kw,kh in caps:
-            lid=lamp.id; selected=lid in self._selected
+            lid=lamp.id; selected=lid in self.selected
             x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
             w=kw*scale; h=kh*scale
             self.rects.append((x,y,w,h,lid))
             color=self.colors.get(str(lid),'4f9c9c')
-            r,g,b=(int(color[i:i+2],16)/255 for i in (0,2,4))
+            r,g,b=(channel/255 for channel in bytes.fromhex(color))
             self.rounded(cr,x,y+2,w,h,4)
             cr.set_source_rgba(0,0,0,.65); cr.fill()
             self.rounded(cr,x,y,w,h,4)
@@ -196,5 +191,5 @@ class KeyboardCanvas(Gtk.DrawingArea):
     def clicked(self, _: Gtk.GestureClick, count: int, x: float, y: float) -> None:
         for left,top,width,height,lid in self.rects:
             if left<=x<=left+width and top<=y<=top+height:
-                self.select(self._selected^{lid})
+                self.select(self.selected^{lid})
                 break
