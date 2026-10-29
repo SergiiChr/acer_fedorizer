@@ -1,11 +1,15 @@
 # Compatibility
 
-This native edition targets **Predator PH16-72** and was built and tested on Fedora with Linux 7.2.8 and BIOS V1.10. Other models are not verified.
+This native edition targets the **Predator PH16-72**, tested on Fedora with Linux 7.2.8 and BIOS V1.10.
+Other models are not verified.
 
-Core controls require the stock `acer_wmi` platform-profile and hwmon interfaces. RGB discovery uses the actual USB devices and HID descriptors. The optional EC rear lightbar module refuses other DMI models.
+Core controls need the stock `acer_wmi` platform-profile and hwmon interfaces.
+Older kernels may lack them; missing features are hidden.
+RGB lighting is found from the actual USB devices and their HID descriptors.
+The rear lightbar module refuses to load on any other DMI model.
 
-Older kernels may not provide the required Acer fan/profile interfaces. Missing features are hidden. See [NATIVE-CONTROLS.md](NATIVE-CONTROLS.md) for detected hardware and [README.md](README.md) for installation.
+The app needs GTK 4.10+ and libadwaita 1.4+.
+Automatic setup supports Fedora, Ubuntu 24.04, and Debian 13.
+Other desktops can run the app, but display color management needs a GNOME/Mutter session.
 
-The GTK interface requires GTK 4.10+ and libadwaita 1.4+. Automatic setup supports
-Fedora, Ubuntu 24.04, and Debian 13. Other desktop environments can run the UI,
-but display color management requires a supported GNOME/Mutter session.
+See [NATIVE-CONTROLS.md](NATIVE-CONTROLS.md) for detected hardware and [README.md](README.md) for installation.

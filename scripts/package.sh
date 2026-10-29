@@ -11,6 +11,6 @@ tar --exclude='__pycache__' --exclude='*.pyc' --exclude='*.o' --exclude='*.ko' \
     -czf "$OUTPUT" -C "$ROOT" \
     control_center hardware assets native-lightbar scripts tests docs \
     setup.sh run.sh AGENTS.md CONTRIBUTING.md README.md FAQ.md Compatibility.md \
-    NATIVE-CONTROLS.md REVIEW.md LICENSE NOTICE.md LICENSES .github .gitignore ruff.toml
+    NATIVE-CONTROLS.md LICENSE NOTICE.md LICENSES .github .gitignore ruff.toml
 (cd -- "$(dirname -- "$OUTPUT")"; sha256sum -- "$(basename -- "$OUTPUT")") > "$OUTPUT.sha256"
 printf 'Created source-complete package: %s\n' "$OUTPUT"

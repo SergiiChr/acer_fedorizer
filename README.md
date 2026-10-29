@@ -1,83 +1,56 @@
 # Acer Fedorizer
 
 A native GTK4/libadwaita control center for the Acer Predator PH16-72 on Linux.
-Performance, cooling, keyboard and chassis lighting, battery care, and display
-color management in one desktop application. Uses Python and distribution GUI
-libraries; no separate SDK, bundled language runtime, or frontend build step.
+It covers performance, cooling, keyboard and chassis lighting, battery care, and display color in one app.
+It uses Python and your distribution's GUI libraries; there is nothing to compile for the app itself.
 
 ## Install
 
-From the downloaded folder:
+From the downloaded folder, as your desktop user:
 
 ```sh
 ./setup.sh install
 ```
 
-Setup installs the native dependencies, daemon, desktop launcher, and the
-model-specific rear lightbar driver. Open **Acer Fedorizer** from your application
-menu or run `acer-fedorizer`. Run setup as your desktop user; it requests sudo
-for system changes. The GUI itself runs without administrator privileges.
+Setup installs the dependencies, the hardware service, a desktop launcher, and the rear lightbar driver.
+It asks for sudo only for system changes; the app itself runs without administrator rights.
+Open **Acer Fedorizer** from your app menu or run `acer-fedorizer`.
 
 | Command | Action |
 | --- | --- |
-| `./setup.sh install` | Install or completely replace the existing installation. |
+| `./setup.sh install` | Install, or fully replace an existing installation. |
 | `./setup.sh uninstall` | Remove app files, settings, backups, and the lightbar driver. |
-| `./setup.sh status` | Read-only checks of the service, socket, files, and driver. |
+| `./setup.sh status` | Check the service, socket, files, and driver without changing anything. |
 | `./setup.sh help` | Explain these commands. |
 
-Existing or older installations trigger
-`This will completely overwrite your installation. Proceed? [y/n]`.
-Only `y` continues; cancellation changes nothing. Reinstallation resets saved
-lighting state only after a successful replacement. Before removing an existing
-installation, setup stages the new app and builds/signs the lightbar module in
-private DKMS trees. The new service must answer a bounded startup ping before
-the recovery snapshot is discarded. A subsequent driver or service failure restores the previous
-app, settings, service state, groups, and driver files/registrations. If rollback
-itself fails, setup reports the retained recovery archive rather than deleting it.
-Dependency-package changes are outside this app rollback; an uncatchable process
-kill or power loss may require recovery from the retained snapshot.
-The upgrade cleanup module removes the former installation's
-service, socket, files, group, and driver registrations, so both daemons cannot
-compete. OS packages shared with other applications and this downloaded folder
-are retained during uninstall.
+If any installation exists, including one under an older name, setup asks `This will completely overwrite your installation. Proceed? [y/n]`.
+Only `y` continues.
+If the new installation fails, setup restores the previous one; if even that fails, it tells you where the backup is kept.
+Saved lighting is reset only after a successful reinstall.
+Uninstall keeps shared OS packages and the downloaded folder.
 
-Supported setup environments: Fedora, Ubuntu 24.04, and Debian 13 on Linux
-x86_64 with systemd, GTK 4.10+, and libadwaita 1.4+. Debian 12's stock libraries
-are too old for this interface. Hardware support remains PH16-72-specific;
-see [Compatibility.md](Compatibility.md). Secure Boot may require enrolling
-the distribution's DKMS signing key before the rear lightbar module loads.
+Supported: Fedora, Ubuntu 24.04, and Debian 13 on x86_64 with systemd, GTK 4.10+, and libadwaita 1.4+.
+Debian 12's libraries are too old.
+Hardware support is PH16-72 only; see [Compatibility.md](Compatibility.md).
+With Secure Boot you may need to enroll your distribution's DKMS signing key before the lightbar driver loads.
 
-## Screens and behavior
+## Screens
 
-- **Dashboard:** CPU usage/temperature, memory, physical-core frequencies, and
-  optional NVIDIA temperature, VRAM, and board power. GPU monitoring starts off;
-  enabling it may wake the discrete GPU. Sampling pauses while the window is
-  minimized and stops when the GUI closes.
-- **Power & Performance:** detected stock-driver profiles and fan modes, with RPM and
-  an explicit Apply action. Fan write failures and every service stop, including a
-  crash, restore automatic cooling.
-- **Lighting:** independent device drafts, firmware effects, linked WASD,
-  coordinated all-lights settings, four-zone colors as a keyboard choice, and per-key
-  static editing using the keyboard's reported LED geometry. One Apply button applies
-  the selected device. Lighting is last successful command state, not hardware readback;
-  the service replays it at start, after sleep, and when a lighting device reconnects.
-  Firmware Wave animations are independent.
-- **Battery:** charge, time estimates when available, health/cycles, and only
-  charge/calibration controls actually exposed by the driver.
-- **Display:** persistent Native SDR color management on a supported active
-  built-in Mutter panel; preserves monitor configuration and is disabled with HDR.
-- **System Settings:** refresh installation status to check app files, service/socket,
-  and lightbar driver. Read-only checks need no sudo and show pass/fail/unknown
-  results. Also shows capabilities, connection details, and licenses/credits.
+- **Dashboard:** CPU use and temperature, memory, per-core frequency, and optional NVIDIA temperature, VRAM, and power. GPU monitoring starts off because it may wake the discrete GPU. Sampling pauses while the window is minimized and stops when it closes.
+- **Power & Performance:** stock driver profiles and fan modes, fan RPM, and an Apply button. If a fan write fails or the service stops for any reason, fans return to automatic.
+- **Lighting:** one editor for Keyboard, WASD, Logo, and Bar, with a separate unsaved draft per device. Pick a firmware effect, color (picker, hex, or swatches), speed, brightness, and direction; options a device does not support are disabled. WASD can follow the keyboard, all lights can be set together, and the keyboard offers four zones or a per-key editor drawn from its real LED layout. Apply sends the selected device and reports what was sent.
+- **Battery:** charge, time estimates when available, health and cycles, and only the charge controls your driver exposes.
+- **Display:** Native SDR color management on a supported built-in Mutter panel; keeps your monitor setup and is off while HDR is on.
+- **System Settings:** installation checks without sudo, device capabilities, connection details, and licenses and credits.
 
-The lightweight Python hardware service stays running after the window closes,
-waiting for commands and the Predator button. It does not run dashboard or GPU
-monitoring. Existing hardware settings are not reset by closing the window.
+The hardware service keeps running after the window closes, waiting for commands and the Predator button.
+It does no dashboard or GPU monitoring, and closing the window does not reset any setting.
+Lighting shown in the app is the last successful command, not a reading from the device.
+The service reapplies it at start, after sleep, and when a lighting device reconnects.
 
-## Screenshots and safe preview
+## Screenshots and preview
 
-These are screenshots of actual GTK widgets with explicitly labelled preview
-data, not claims of live hardware measurements.
+Screenshots are real app renders with labelled sample data, not live measurements.
 
 ![Dashboard](docs/screenshots/overview.png)
 ![Lighting](docs/screenshots/lighting.png)
@@ -91,18 +64,14 @@ data, not claims of live hardware measurements.
 ./run.sh --screenshots docs/screenshots
 ```
 
-Preview mode never connects to the hardware service or session display API.
-For source development with native dependencies already installed, `./run.sh`
-launches the real app without installing it.
+Preview never connects to the hardware service or the desktop display API.
+With dependencies installed, `./run.sh` starts the real app from source without installing it.
 
 ## Development and licensing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), and
-[NATIVE-CONTROLS.md](NATIVE-CONTROLS.md). `scripts/package.sh` produces one
-source-complete archive and a checksum. Python sources and all module/build
-sources are included; there is no separate binary GUI distribution.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), and [NATIVE-CONTROLS.md](NATIVE-CONTROLS.md).
+`scripts/package.sh` builds one source-complete archive and a checksum.
 
-The application and daemon are GPLv3; the separate kernel bridge is GPLv2.
-[NOTICE.md](NOTICE.md) consolidates attribution, consulted protocol research,
-and runtime dependency notices. Full terms are in [LICENSE](LICENSE) and the
-remaining component license texts in [LICENSES](LICENSES).
+The app and daemon are GPLv3; the separate kernel module is GPLv2.
+[NOTICE.md](NOTICE.md) lists attribution, protocol sources, and runtime dependencies.
+Full terms are in [LICENSE](LICENSE) and [LICENSES](LICENSES).

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
+import re
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -39,6 +40,8 @@ class MarkdownTests(unittest.TestCase):
     def test_real_notice_renders_all_blocks_from_single_source(self):
         source=(Path(__file__).resolve().parents[1]/'NOTICE.md').read_text()
         rendered=[]; tables=0
+        source_bullets=sum(bool(re.match(r'^[-*]\s+\S',line)) for line in source.splitlines())
+        self.assertEqual(sum(block[0]=='bullet' for block in blocks(source)),source_bullets)
         for block in blocks(source):
             if block[0]=='table':
                 tables+=1
