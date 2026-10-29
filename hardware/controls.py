@@ -78,7 +78,9 @@ class NativeControls:
         if self.threshold:
             self.static_features.add('battery_limiter')
         self.discover_hid = discover_hid
-        self.keyboard = self.vendor = self.logo = None
+        self.keyboard: LampArrayDevice | None = None
+        self.vendor: VendorKeyboard | None = None
+        self.logo: CoverLogo | None = None
         if discover_hid:
             self.find_hid()
         try:
@@ -181,25 +183,25 @@ class NativeControls:
 
     def _apply_keyboard(self, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int) -> None:
         if mode == 0 and self.keyboard:
-            with self.keyboard as kb:
+            with self.keyboard.open() as kb:
                 kb.fill(_scale_rgb(rgb, brightness))
         elif self.vendor:
             if self.keyboard:
-                with self.keyboard as kb:
+                with self.keyboard.open() as kb:
                     kb.autonomous(True)
             self.vendor.effect(mode, rgb, speed, brightness, direction)
         else:
             raise ValueError('Native effects unavailable; static color is supported')
 
-    def _apply_zones(self, colors: list[Rgb]) -> None:
-        with self.keyboard as kb:
+    def _apply_zones(self, keyboard: LampArrayDevice, colors):
+        with keyboard.open() as kb:
             kb.multi({lamp['id']: colors[min(lamp['x'] * 4 // max(kb.w, 1), 3)] for lamp in kb.lamps()})
         if self.vendor:
             self.vendor.effect(0, colors[0], 5, 100, mag=True)
 
-    def _apply_per_key(self, mapping: dict[int, Rgb], brightness: int) -> list[Lamp]:
+    def _apply_per_key(self, keyboard: LampArrayDevice, mapping, brightness):
         """Send a full static layout and return the lamp list it was validated against."""
-        with self.keyboard as kb:
+        with keyboard.open() as kb:
             lamps = kb.lamps()
             if set(mapping) != {lamp['id'] for lamp in lamps if lamp['programmable']}:
                 raise ValueError('Send one color for every programmable keyboard lamp')
@@ -218,7 +220,7 @@ class NativeControls:
         if not self.keyboard:
             raise ValueError('Per-lamp keyboard unavailable')
         colors = [color(p[f'zone{i}']) for i in range(1, 5)]
-        self._apply_zones(colors)
+        self._apply_zones(self.keyboard, colors)
         self.lighting['keyboard'] = {'kind': 'zones', 'colors': [bytes(c).hex() for c in colors]}
         if self.vendor:
             self.lighting['wasd'] = {'mode': 0, 'color': bytes(colors[0]).hex(), 'brightness': 100,
@@ -257,7 +259,7 @@ class NativeControls:
     def keyboard_layout(self) -> JsonDict:
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
-        with self.keyboard as kb:
+        with self.keyboard.open() as kb:
             return {'width': kb.w, 'height': kb.h, 'lamps': kb.lamps()}
 
     def set_per_key(self, p: JsonDict) -> None:
@@ -275,7 +277,7 @@ class NativeControls:
             mapping[lamp] = color(value)
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
-        lamps = self._apply_per_key(mapping, brightness)
+        lamps = self._apply_per_key(self.keyboard, mapping, brightness)
         self.lighting['per_key'] = {'colors': {str(k): bytes(v).hex() for k, v in mapping.items()},
                                     'brightness': brightness}
         self.lighting['keyboard'] = {'kind': 'per_key', 'brightness': brightness}
@@ -341,10 +343,10 @@ class NativeControls:
     def _restore(self, target: str, saved: JsonDict) -> None:
         # A WASD entry recorded by a per-key layout has no mode; the keyboard layout already covers it.
         if target == 'keyboard' and saved.get('kind') == 'zones' and self.keyboard:
-            self._apply_zones([color(c) for c in saved['colors']])
+            self._apply_zones(self.keyboard, [color(c) for c in saved['colors']])
         elif target == 'keyboard' and saved.get('kind') == 'per_key' and self.keyboard:
             per_key = self.lighting['per_key']
-            self._apply_per_key({int(k): color(v) for k, v in per_key['colors'].items()},
+            self._apply_per_key(self.keyboard, {int(k): color(v) for k, v in per_key['colors'].items()},
                                 integer(per_key.get('brightness', 100), 0, 100))
         elif saved.get('mode') in self.lighting_modes().get(target, []):
             if target == 'keyboard':

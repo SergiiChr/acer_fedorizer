@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -15,7 +16,7 @@ from unittest.mock import MagicMock, Mock
 
 from hardware import uevents
 from hardware.controls import NativeControls
-from hardware.hid import CoverLogo, VendorKeyboard, frame
+from hardware.hid import CoverLogo, LampArrayDevice, VendorKeyboard, frame
 from hardware.hotkey import button_pressed
 
 spec = importlib.util.spec_from_file_location('hardware.daemon', ROOT / 'hardware/daemon.py')
@@ -136,7 +137,7 @@ class NativeTests(unittest.TestCase):
         from unittest.mock import MagicMock
         c = self.controls
         keyboard = MagicMock()
-        keyboard.__enter__.return_value = keyboard
+        keyboard.open.return_value.__enter__.return_value = keyboard
         keyboard.lamps.return_value = [{'id': 0, 'programmable': True}, {'id': 1, 'programmable': True}]
         c.keyboard = keyboard
         with self.assertRaises(ValueError):
@@ -241,7 +242,44 @@ class NativeTests(unittest.TestCase):
                           frame(0x14, 0, 0, 255, 20, 80, 0)], reports)
         self.assertTrue(all(sum(r[1:]) % 256 == 255 for r in reports))
 
-    def test_effect_failure_is_not_saved_as_success(self) -> None:
+    def test_lamp_array_session_report_bytes_and_order(self):
+        reports = []
+        def ioctl(fd: int, request: int, buf: bytearray, mutate: bool) -> None:
+            reports.append((fd, request, bytes(buf)))
+            if buf[0] == 0x02:
+                buf[1:11] = struct.pack('<HII', 3, 400, 150)
+            elif buf[0] == 0x22:
+                lamp = sum(report[0] == 0x22 for _, _, report in reports) - 1
+                buf[1:15] = struct.pack('<HIII', lamp, lamp * 100, 10, 0)
+                buf[27], buf[28] = 1, 4 + lamp
+        device = LampArrayDevice('/dev/test', 0x5AF, 0x666A, 'k', {u: u for u in (2, 0x20, 0x22, 0x50, 0x60, 0x70)}, 2)
+        with patch('hardware.hid.os.open', return_value=9), patch('hardware.hid.os.close') as close, \
+             patch('hardware.hid.fcntl.ioctl', side_effect=ioctl), patch('hardware.hid.time.sleep'):
+            with device.open() as kb:
+                kb.fill((1, 2, 3))
+                lamps = kb.lamps()
+                kb.multi({2: (7, 8, 9), 0: (1, 2, 3), 1: (4, 5, 6)})
+                kb.autonomous(True)
+            close.assert_called_once_with(9)
+        self.assertEqual((400, 150), (kb.w, kb.h))
+        self.assertEqual({'id': 2, 'x': 200, 'y': 10, 'z': 0, 'programmable': True, 'key_usage': 6}, lamps[2])
+        self.assertEqual([(0xC0174807, '02' + '00' * 22), (0xC0024806, '7000'), (0xC00A4806, '600100000200010203ff'),
+                          (0xC0034806, '200000'), (0xC01D4807, '22' + '00' * 28),
+                          (0xC0034806, '200100'), (0xC01D4807, '22' + '00' * 28),
+                          (0xC0034806, '200200'), (0xC01D4807, '22' + '00' * 28),
+                          (0xC0024806, '7000'), (0xC00F4806, '50020000000100010203ff040506ff'),
+                          (0xC00F4806, '50010102000000070809ff00000000'), (0xC0024806, '7001')],
+                         [(request, data.hex()) for _, request, data in reports])
+        self.assertTrue(all(fd == 9 for fd, _, _ in reports))
+
+    def test_lamp_array_open_closes_node_on_invalid_count(self):
+        device = LampArrayDevice('/dev/test', 0x5AF, 0x666A, 'k', {u: u for u in (2, 0x20, 0x22, 0x50, 0x60, 0x70)}, 2)
+        with patch('hardware.hid.os.open', return_value=9), patch('hardware.hid.os.close') as close, \
+             patch('hardware.hid.fcntl.ioctl'), self.assertRaises(ValueError):
+            device.open()
+        close.assert_called_once_with(9)
+
+    def test_effect_failure_is_not_saved_as_success(self):
         with self.assertRaises(ValueError):
             self.controls.command('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': 'ff0000'})
         self.assertEqual({}, self.controls.lighting)
@@ -272,7 +310,7 @@ class NativeTests(unittest.TestCase):
 
     def lamp_keyboard(self) -> MagicMock:
         keyboard = MagicMock()
-        keyboard.__enter__.return_value = keyboard
+        keyboard.open.return_value.__enter__.return_value = keyboard
         keyboard.w = 400
         keyboard.lamps.return_value = [{'id': i, 'x': i * 100 + 50, 'programmable': True, 'key_usage': 4 + i} for i in range(4)]
         return keyboard
