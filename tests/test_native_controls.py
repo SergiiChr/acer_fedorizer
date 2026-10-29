@@ -184,9 +184,39 @@ class NativeTests(unittest.TestCase):
         self.assertEqual('128', (self.hwmon / 'pwm1').read_text())
         self.assertEqual('1', (self.hwmon / 'pwm1_enable').read_text())
         self.assertEqual('0', (self.hwmon / 'pwm2_enable').read_text())
-        self.assertEqual('100', self.controls.settings()['fan_speed']['gpu'])
+        self.assertEqual({'cpu': {'mode': 'manual', 'percent': 50}, 'gpu': {'mode': 'max', 'percent': 100}},
+                         self.controls.settings()['fans'])
         self.controls.set_fans(0, 0)
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
+        self.assertEqual({'mode': 'auto', 'percent': 0}, self.controls.settings()['fans']['cpu'])
+
+    def test_settings_reply_types(self):
+        settings = self.controls.settings()
+        self.assertIn('fan_speed', settings['available_features'])
+        self.assertNotIn('fan_speed', settings)
+        acer_wmi = self.root / 'devices/platform/acer-wmi'
+        acer_wmi.mkdir(parents=True)
+        for key, value in (('backlight_timeout', '1'), ('battery_calibration', '0'), ('battery_limiter', '1'),
+                           ('boot_animation_sound', 'bad'), ('lcd_override', '1'), ('usb_charging', '20')):
+            (acer_wmi / key).write_text(value)
+        c = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
+        settings = c.settings()
+        self.assertEqual((True, False, True, False, True, 20),
+                         tuple(settings[key] for key in ('backlight_timeout', 'battery_calibration', 'battery_limiter',
+                                                         'boot_animation_sound', 'lcd_override', 'usb_charging')))
+        (acer_wmi / 'usb_charging').write_text('off')
+        self.assertEqual(0, c.settings()['usb_charging'])
+        battery = self.root / 'class/power_supply/BAT1/charge_control_end_threshold'
+        battery.parent.mkdir(parents=True)
+        for threshold, limited in (('80', True), ('100', False)):
+            battery.write_text(threshold)
+            settings = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False).settings()
+            self.assertIs(limited, settings['battery_limiter'])
+        for path in self.hwmon.iterdir():
+            path.unlink()
+        settings = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False).settings()
+        self.assertNotIn('fans', settings)
+        self.assertEqual({'cpu': None, 'gpu': None}, settings['fan_rpm'])
 
     def test_invalid_second_fan_cannot_partially_apply_first(self) -> None:
         with self.assertRaises(ValueError):

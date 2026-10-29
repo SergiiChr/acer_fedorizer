@@ -28,6 +28,22 @@ def read(path: Path, default: str = '') -> str:
         return default
 
 
+def decimal(value: str) -> int | None:
+    """Return a non-negative sysfs integer, or None when the attribute is unreadable or not a number."""
+    return int(value) if value.isascii() and value.isdecimal() else None
+
+
+def fan_state(enable: str, pwm: str) -> JsonObject:
+    """Describe a fan from its hwmon pwmN_enable and pwmN values: firmware auto, full speed, or a manual percent."""
+    match enable:
+        case '0':
+            return {'mode': 'max', 'percent': 100}
+        case '1':
+            return {'mode': 'manual', 'percent': round(int(pwm) * 100 / 255)}
+        case _:
+            return {'mode': 'auto', 'percent': 0}
+
+
 def integer(value: object, lo: int, hi: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
         raise ValueError(f'Expected integer {lo}–{hi}')
@@ -282,26 +298,22 @@ class NativeControls:
         with self.lock:
             profile = read(self.profile_dir / 'profile') if self.profile_dir else ''
             choices = read(self.profile_dir / 'choices').split() if self.profile_dir else []
-            fan = {}
-            for i, name in ((1, 'cpu'), (2, 'gpu')):
-                if self.hwmon:
-                    enabled = read(self.hwmon / f'pwm{i}_enable')
-                    raw = read(self.hwmon / f'pwm{i}', '0')
-                    fan[name] = '100' if enabled == '0' else str(round(int(raw) * 100 / 255)) if enabled == '1' else '0'
-            rpm = {}
-            for i, name in ((1, 'cpu'), (2, 'gpu')):
-                value = read(self.hwmon / f'fan{i}_input') if self.hwmon else ''
-                rpm[name] = int(value) if value.isascii() and value.isdecimal() else None
+            rpm = {name: decimal(read(self.hwmon / f'fan{i}_input')) if self.hwmon else None
+                   for i, name in ((1, 'cpu'), (2, 'gpu'))}
             out: JsonObject = {
                 'version': VERSION, 'driver_version': 'Stock Linux acer_wmi + HID',
                 'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
                 'available_features': sorted(self.features), 'ac_online': self.ac_online(),
-                'thermal_profile': {'current': profile, 'available': choices}, 'fan_speed': fan, 'fan_rpm': rpm,
+                'thermal_profile': {'current': profile, 'available': choices}, 'fan_rpm': rpm,
                 'lighting_modes': self.lighting_modes(), 'lighting_state': self.lighting.to_json()}
+            if self.hwmon:
+                out['fans'] = {name: fan_state(read(self.hwmon / f'pwm{i}_enable'), read(self.hwmon / f'pwm{i}', '0'))
+                               for i, name in ((1, 'cpu'), (2, 'gpu'))}
             for k, p in self.extra_files.items():
-                out[k] = read(p)
+                value = read(p)
+                out[k] = (decimal(value) or 0) if k == 'usb_charging' else value == '1'
             if self.threshold:
-                out['battery_limiter'] = '1' if int(read(self.threshold, '100')) <= 80 else '0'
+                out['battery_limiter'] = int(read(self.threshold, '100')) <= 80
             return out
 
     def set_profile(self, profile: object) -> str:
