@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import struct
 import sys
@@ -16,7 +17,7 @@ from unittest.mock import MagicMock, Mock
 from hardware import daemon, uevents
 from hardware.controls import Effect, KeyColors, Lighting, NativeControls, Target
 from hardware.hid import CoverLogo, LampArrayDevice, VendorKeyboard, frame
-from hardware.hotkey import button_pressed
+from hardware.hotkey import button_pressed, launch
 
 CHOICES = ['low-power', 'quiet', 'balanced', 'balanced-performance', 'performance']
 
@@ -28,6 +29,13 @@ class NativeTests(unittest.TestCase):
         for args in [(3, 40, 0, True), (3, 40, 2, True), (1, 30, 1, True),
                      (1, 202, 2, False), (3, 40, 1, False)]:
             self.assertFalse(button_pressed(*args))
+
+    def test_button_launch_does_not_check_user_runtime_folder(self) -> None:
+        # Without CAP_DAC_READ_SEARCH the daemon cannot stat /run/user/<uid>; launching must not depend on it.
+        with patch('hardware.hotkey.subprocess.run', return_value=Mock(returncode=0)) as run, \
+             patch('hardware.hotkey.Path.exists', side_effect=AssertionError('runtime folder checked')):
+            launch(os.getuid())
+        self.assertEqual('/usr/local/bin/acer-fedorizer', run.call_args.args[0][-1])
 
     def test_fan_rpm_unavailable_is_not_stopped(self) -> None:
         self.assertEqual({'cpu': 2000, 'gpu': None}, self.controls.settings()['fan_rpm'])

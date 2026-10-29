@@ -42,10 +42,9 @@ def button_devices(root: Path = Path('/sys/class/input')) -> dict[Path, bool]:
 def launch(uid: int) -> None:
     user = pwd.getpwuid(uid)
     runtime = f'/run/user/{uid}'
-    if not Path(runtime, 'bus').exists():
-        return
     # Switch to the desktop user directly instead of through runuser and PAM.
     # The user manager already has the graphical session's DISPLAY/XAUTHORITY.
+    # No session check here: the sandboxed daemon cannot read the user's private runtime folder, and systemd-run reports a missing session.
     result = subprocess.run(
         ['/usr/bin/systemd-run', '--user', '--collect', '--quiet', '/usr/local/bin/acer-fedorizer'],
         user=uid, group=user.pw_gid, extra_groups=os.getgrouplist(user.pw_name, user.pw_gid), cwd='/',
