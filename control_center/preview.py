@@ -3,6 +3,7 @@
 import copy
 import json
 import math
+import threading
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,8 @@ def fan(percent: int) -> JSON:
 class PreviewClient:
     """Answers service commands from in-memory preview state and records every command it receives."""
     def __init__(self) -> None:
+        # Window workers call in parallel, like the locked live client.
+        self.lock=threading.Lock()
         self.commands: list[tuple[str, dict[str, JSON]]]=[]
         self.profile='balanced'
         self.fans: dict[str, JSON]={'cpu': fan(0),'gpu': fan(0)}
@@ -44,7 +47,9 @@ class PreviewClient:
         return copy.deepcopy(state)
 
     def command(self, command: str, params: dict[str, JSON] | None=None) -> JSON:
-        params=params or {}
+        with self.lock: return self.answer(command,params or {})
+
+    def answer(self, command: str, params: dict[str, JSON]) -> JSON:
         self.commands.append((command,copy.deepcopy(params)))
         if command=='get_keyboard_layout': return layout()
         if command=='set_thermal_profile': self.profile=str(params['profile'])

@@ -4,7 +4,7 @@ Working rules, the source map, and `scripts/check.sh` are described in [AGENTS.m
 
 ## Running from source
 
-You need system Python 3, PyGObject/Pycairo, GTK 4.10+, and libadwaita 1.4+.
+You need system Python 3.12+, PyGObject/Pycairo, GTK 4.10+, and libadwaita 1.4+.
 There are no pip packages and no frontend build step.
 
 - `./run.sh` starts the real app without installing it.

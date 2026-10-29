@@ -45,7 +45,10 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
         elif name=='credits': target=app.window.show_credits()
         else: app.window.show_page(name); target=app.window
         if target: invalidate(target)
-        def capture() -> bool:
+        def capture(attempts: int = 50) -> bool:
+            # The lighting page loads the keyboard layout asynchronously; the keyboard editor needs it too.
+            if name=='lighting' and app.window.layout is None and attempts:
+                GLib.timeout_add(100,capture,attempts-1); return False
             try:
                 if target is None: raise RuntimeError('Keyboard layout is not loaded')
                 save_window(target,directory/(name+'.png'))

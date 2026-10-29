@@ -79,7 +79,7 @@ def fan_state(enable: str, pwm: str) -> FanState:
         case '0':
             return {'mode': 'max', 'percent': 100}
         case '1':
-            return {'mode': 'manual', 'percent': round(int(pwm) * 100 / 255)}
+            return {'mode': 'manual', 'percent': round((decimal(pwm) or 0) * 100 / 255)}
         case _:
             return {'mode': 'auto', 'percent': 0}
 
@@ -354,7 +354,8 @@ class NativeControls:
             if 'usb_charging' in self.extra_files:
                 out['usb_charging'] = decimal(read(self.extra_files['usb_charging'])) or 0
             if self.threshold:
-                out['battery_limiter'] = int(read(self.threshold, '100')) <= 80
+                threshold = decimal(read(self.threshold))
+                out['battery_limiter'] = threshold is not None and threshold <= 80
             return out
 
     def set_profile(self, profile: object) -> str:
