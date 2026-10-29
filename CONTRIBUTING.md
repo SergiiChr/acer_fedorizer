@@ -26,6 +26,7 @@ Requests are one JSON line with `command` and `params`.
 Responses contain `success` plus `data` or `error`.
 A request may be at most 65,536 bytes including the newline; the client accepts responses up to 262,144 bytes.
 The daemon validates every write itself, independently of the GUI, and handles one hardware request at a time.
+The GUI and daemon ship together; when running the GUI from source, install the daemon from the same revision.
 
 The service sandbox gives a read-only system, access only to hidraw and input devices, and no network.
 It keeps only `CAP_CHOWN` to hand over the socket, and `CAP_SETUID`/`CAP_SETGID` to start the GUI as the desktop user when the Predator button is pressed.

@@ -531,7 +531,6 @@ class MainWindow(Adw.ApplicationWindow):
             if self.layout and (colors:=full_key_map(self.layout,state.per_key.colors))!=self.keyboard_canvas.colors:
                 self.keyboard_canvas.set_colors(colors)
         finally: self.updating=False
-        if 'per_key_mode' in state.features: self.ensure_layout()
 
     def receive_sample(self, sample: Sample) -> None:
         self.cpu_value.set_text(number_text(sample.cpu_usage,'%',1,missing='Sampling…'))

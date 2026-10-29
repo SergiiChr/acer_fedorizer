@@ -29,7 +29,7 @@ If the new installation fails, setup restores the previous one; if even that fai
 Saved lighting is reset only after a successful reinstall.
 Uninstall keeps shared OS packages and the downloaded folder.
 
-Supported: Fedora, Ubuntu 24.04, and Debian 13 on x86_64 with systemd, GTK 4.10+, and libadwaita 1.4+.
+Supported: Fedora, Ubuntu 24.04, and Debian 13 on x86_64 with systemd, Python 3.12+, GTK 4.10+, and libadwaita 1.4+.
 Debian 12's libraries are too old.
 Hardware support is PH16-72 only; see [Compatibility.md](Compatibility.md).
 With Secure Boot you may need to enroll your distribution's DKMS signing key before the lightbar driver loads.
@@ -38,7 +38,7 @@ With Secure Boot you may need to enroll your distribution's DKMS signing key bef
 
 - **Dashboard:** CPU use and temperature, memory, per-core frequency, and optional NVIDIA temperature, VRAM, and power. GPU monitoring starts off because it may wake the discrete GPU. Sampling pauses while the window is minimized and stops when it closes.
 - **Power & Performance:** stock driver profiles and fan modes, fan RPM, and an Apply button. If a fan write fails or the service stops for any reason, fans return to automatic.
-- **Lighting:** one editor for Keyboard, WASD, Logo, and Bar, with a separate unsaved draft per device. Pick a firmware effect, color (picker, hex, or swatches), speed, brightness, and direction; options a device does not support are disabled. WASD can follow the keyboard, all lights can be set together, and the keyboard offers four zones or a per-key editor drawn from its real LED layout. Apply sends the selected device and reports what was sent.
+- **Lighting:** one editor for Keyboard, WASD, Logo, and Bar, with a separate unsaved draft per device. Pick a firmware effect, color (picker, hex, or swatches), speed, brightness, and direction; options a device does not support are disabled. WASD can follow the keyboard, all lights can be set together, and the keyboard offers four zones or a per-key editor drawn from its real LED layout. Apply sends the selected device's draft.
 - **Battery:** charge, time estimates when available, health and cycles, and only the charge controls your driver exposes.
 - **Display:** Native SDR color management on a supported built-in Mutter panel; keeps your monitor setup and is off while HDR is on.
 - **System Settings:** installation checks without sudo, device capabilities, connection details, and licenses and credits.

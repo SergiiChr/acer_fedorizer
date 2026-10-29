@@ -8,14 +8,16 @@ This file is the single source for working rules; other docs link here instead o
 - `control_center/`: unprivileged GTK app.
   - `app.py`: windows and async actions.
   - `widgets.py`: mode tiles, charts, keyboard preview.
+  - `keyboard.py`: keycap geometry from the reported LED layout.
   - `client.py`: bounded, serialized JSON socket client.
-  - `models.py`: per-device lighting drafts and color validation.
+  - `models.py`: typed settings parsed once from each daemon reply, per-device lighting drafts, and color validation.
   - `telemetry.py`: read-only sysfs/proc sampling; NVIDIA only when enabled.
   - `display.py`: Mutter session-bus bridge.
   - `installation.py`: read-only install checks shared by the GUI and `setup.sh status`.
   - `markdown_view.py`: renders credits from `NOTICE.md`.
   - `services.py`: the window's data sources; live ones reach the daemon and session, `preview.py` supplies the preview ones.
   - `preview.py`: fake data for `--preview`, screenshots, and UI tests.
+  - `screenshots.py`: renders the README screenshots from preview data.
 - `hardware/`: root daemon using only the Python standard library; stock sysfs and direct HID controls.
 - `native-lightbar/`: separate GPLv2 kernel module, limited to the PH16-72 DMI.
 - `setup.sh`: the four public commands; `scripts/` holds internal install, package, and check helpers.
@@ -71,6 +73,7 @@ Docs:
 Never install packages, restart services, load modules, or touch hardware during tests or reviews.
 Use fake fixtures, `./run.sh --preview`, and `scripts/ui-smoke.py`.
 Preview never contacts the hardware service or Mutter.
+Checks write only `publish/` and the git-ignored `.venv/`, `.mypy_cache/`, and `.ruff_cache/`.
 `python3 -m hardware.daemon --inspect` reads live HID devices, so it is not an offline test.
 
 ```sh
