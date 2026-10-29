@@ -56,7 +56,8 @@ App:
 
 Code:
 
-- Python passes `ruff check .`; new and changed code uses strict type hints.
+- Python passes `ruff check .`, whose `ANN` rules require type hints on every function.
+- Use precise types, not `typing.Any`, casts, or `# type: ignore`; ruff checks that hints exist, not that they are correct.
 - Names from earlier projects belong only in attribution and `scripts/legacy-install.sh`.
 - Keep original license headers when renaming or moving modules.
 - The kernel module stays separate from the GPLv3 app and limited to PH16-72.

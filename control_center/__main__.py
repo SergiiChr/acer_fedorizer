@@ -3,7 +3,7 @@ import argparse
 import sys
 
 
-def main():
+def main() -> int:
     parser=argparse.ArgumentParser(description='Acer Fedorizer native Linux control center')
     parser.add_argument('--preview',action='store_true',help='Use labelled preview data without hardware or session access')
     parser.add_argument('--screenshots',metavar='DIRECTORY',help='Capture every screen with preview data, then exit')

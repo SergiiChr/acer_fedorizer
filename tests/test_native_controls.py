@@ -24,21 +24,21 @@ spec.loader.exec_module(daemon)
 
 
 class NativeTests(unittest.TestCase):
-    def test_button_only_accepts_dedicated_press(self):
+    def test_button_only_accepts_dedicated_press(self) -> None:
         self.assertTrue(button_pressed(3, 40, 1, True))
         self.assertTrue(button_pressed(1, 202, 1, False))
         for args in [(3, 40, 0, True), (3, 40, 2, True), (1, 30, 1, True),
                      (1, 202, 2, False), (3, 40, 1, False)]:
             self.assertFalse(button_pressed(*args))
 
-    def test_fan_rpm_unavailable_is_not_stopped(self):
+    def test_fan_rpm_unavailable_is_not_stopped(self) -> None:
         self.assertEqual(self.controls.settings()['fan_rpm'], {'cpu': 2000, 'gpu': None})
         (self.hwmon / 'fan2_input').write_text('0')
         self.assertEqual(self.controls.settings()['fan_rpm']['gpu'], 0)
         (self.hwmon / 'fan2_input').write_text('bad')
         self.assertIsNone(self.controls.settings()['fan_rpm']['gpu'])
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.profile = self.root / 'class/platform-profile/platform-profile-0'
@@ -53,17 +53,17 @@ class NativeTests(unittest.TestCase):
             (self.hwmon / f'pwm{i}_enable').write_text('2')
         self.controls = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_discovery_accepts_stock_acer_and_rejects_unrelated_provider(self):
+    def test_discovery_accepts_stock_acer_and_rejects_unrelated_provider(self) -> None:
         self.assertIn('thermal_profile', self.controls.features)
         self.assertIn('fan_speed', self.controls.features)
         (self.profile / 'name').write_text('unrelated-driver')
         other = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
         self.assertNotIn('thermal_profile', other.features)
 
-    def test_profile_reads_external_changes_and_reads_do_not_write(self):
+    def test_profile_reads_external_changes_and_reads_do_not_write(self) -> None:
         for choice in self.controls.settings()['thermal_profile']['available']:
             (self.profile / 'profile').write_text(choice)
             with patch.object(self.controls, '_write', side_effect=AssertionError('read caused write')):
@@ -71,13 +71,13 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.controls.command('set_thermal_profile', {'profile': 'turbo'})
 
-    def test_rejected_profile_does_not_change_fans(self):
+    def test_rejected_profile_does_not_change_fans(self) -> None:
         with patch.object(self.controls, '_write', side_effect=PermissionError('firmware rejected')), \
              self.assertRaises(PermissionError):
             self.controls.command('set_thermal_profile', {'profile': 'performance'})
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
 
-    def test_unified_lighting_validates_before_hardware_and_saves_only_success(self):
+    def test_unified_lighting_validates_before_hardware_and_saves_only_success(self) -> None:
         from unittest.mock import Mock
         self.controls.logo = Mock()
         params = {'target': 'logo', 'mode': 1, 'color': 'ff2300', 'brightness': 90, 'speed': 4, 'direction': 1}
@@ -92,7 +92,7 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.controls.command('set_lighting', dict(params, mode=3))
         self.controls.logo.effect.assert_not_called()
 
-    def test_linked_wasd_failure_does_not_persist_partial_keyboard_success(self):
+    def test_linked_wasd_failure_does_not_persist_partial_keyboard_success(self) -> None:
         from unittest.mock import Mock
         c = self.controls
         c.vendor = Mock()
@@ -106,7 +106,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(previous, c.state_file.read_text())
         self.assertEqual({'keyboard': {'color': '0000ff'}}, c.lighting)
 
-    def test_link_option_validates_before_any_keyboard_write(self):
+    def test_link_option_validates_before_any_keyboard_write(self) -> None:
         from unittest.mock import Mock
         c = self.controls
         c.vendor = Mock()
@@ -114,7 +114,7 @@ class NativeTests(unittest.TestCase):
             c.command('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': 'ff0000', 'link_wasd': 'false'})
         c.vendor.effect.assert_not_called()
 
-    def test_global_sync_exposes_only_common_effects_and_reports_partial_failure(self):
+    def test_global_sync_exposes_only_common_effects_and_reports_partial_failure(self) -> None:
         from unittest.mock import Mock
         c = self.controls
         c.vendor = Mock()
@@ -132,7 +132,7 @@ class NativeTests(unittest.TestCase):
         self.assertNotIn('logo', c.lighting)
         self.assertNotIn('all', c.lighting)
 
-    def test_per_key_validates_full_map_and_scales_brightness(self):
+    def test_per_key_validates_full_map_and_scales_brightness(self) -> None:
         from unittest.mock import MagicMock
         c = self.controls
         keyboard = MagicMock()
@@ -152,7 +152,7 @@ class NativeTests(unittest.TestCase):
             c.command('set_per_key', {'colors': {'0':'00ff00','1':'00ff00'}})
         self.assertEqual(previous, c.state_file.read_text())
 
-    def test_logo_uses_logo_specific_mode_path(self):
+    def test_logo_uses_logo_specific_mode_path(self) -> None:
         from hardware.hid import CoverLogo
         sent = []
         with patch('hardware.hid.os.open', return_value=3), patch('hardware.hid.os.close'), patch('hardware.hid.time.sleep'), patch('hardware.hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
@@ -160,7 +160,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(frame(0x08, 3, 1, 11, 100, 0, 0), sent[-1])
         self.assertEqual(frame(0x14, 0, 0, 255,35,0,0), sent[-2])
 
-    def test_mag_color_scope_and_mode(self):
+    def test_mag_color_scope_and_mode(self) -> None:
         kb = VendorKeyboard('/dev/fake')
         sent = []
         with patch('hardware.hid.os.open', return_value=3), patch('hardware.hid.os.close'), patch('hardware.hid.send_feature', side_effect=lambda fd, data: sent.append(data)):
@@ -168,7 +168,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(frame(0x08, 2, 0x42, 6, 90, 0, 0), sent[2])
         self.assertEqual(frame(0x14, 0, 1, 255,35,0,0), sent[3])
 
-    def test_manual_max_and_auto_fans(self):
+    def test_manual_max_and_auto_fans(self) -> None:
         self.controls.set_fans(50, 100)
         self.assertEqual('128', (self.hwmon / 'pwm1').read_text())
         self.assertEqual('1', (self.hwmon / 'pwm1_enable').read_text())
@@ -177,12 +177,12 @@ class NativeTests(unittest.TestCase):
         self.controls.set_fans(0, 0)
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
 
-    def test_invalid_second_fan_cannot_partially_apply_first(self):
+    def test_invalid_second_fan_cannot_partially_apply_first(self) -> None:
         with self.assertRaises(ValueError):
             self.controls.set_fans(100, 200)
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
 
-    def test_bar_bridge_discovery_validation_and_failed_state(self):
+    def test_bar_bridge_discovery_validation_and_failed_state(self) -> None:
         p = self.root / 'bus/wmi/devices/7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56/color'
         p.parent.mkdir(parents=True)
         p.touch()
@@ -198,9 +198,9 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.command('set_lighting', dict(params, color='zz50ff'))
 
-    def test_partial_fan_failure_restores_automatic_cooling(self):
+    def test_partial_fan_failure_restores_automatic_cooling(self) -> None:
         original = self.controls._write
-        def fail_second(path, value):
+        def fail_second(path: str | Path, value: object) -> None:
             if Path(path).name == 'pwm2' and value != 2:
                 raise OSError('second fan failed')
             original(path, value)
@@ -209,7 +209,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
         self.assertEqual('2', (self.hwmon / 'pwm2_enable').read_text())
 
-    def test_bar_static_loads_color_before_switching_and_preserves_state_on_failure(self):
+    def test_bar_static_loads_color_before_switching_and_preserves_state_on_failure(self) -> None:
         bar = self.root / 'bar/color'
         bar.parent.mkdir()
         bar.touch()
@@ -232,7 +232,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(['1 3 100 1 0 50 255', '0 3 100 1 0 50 255'],
                          [call.args[1] for call in write.call_args_list])
 
-    def test_original_dll_effect_sequence_and_color_order(self):
+    def test_original_dll_effect_sequence_and_color_order(self) -> None:
         reports = []
         with patch('hardware.hid.os.open', return_value=7), patch('hardware.hid.os.close'), \
              patch('hardware.hid.send_feature', side_effect=lambda fd, data: reports.append(data)):
@@ -241,13 +241,13 @@ class NativeTests(unittest.TestCase):
                           frame(0x14, 0, 0, 255, 20, 80, 0)], reports)
         self.assertTrue(all(sum(r[1:]) % 256 == 255 for r in reports))
 
-    def test_effect_failure_is_not_saved_as_success(self):
+    def test_effect_failure_is_not_saved_as_success(self) -> None:
         with self.assertRaises(ValueError):
             self.controls.command('set_lighting', {'target': 'keyboard', 'mode': 1, 'color': 'ff0000'})
         self.assertEqual({}, self.controls.lighting)
         self.assertFalse((self.root / 'state.json').exists())
 
-    def test_fragmented_and_coalesced_requests(self):
+    def test_fragmented_and_coalesced_requests(self) -> None:
         path = str(self.root / 'rpc.sock')
         server = daemon.NativeServer(path, self.controls)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -270,14 +270,14 @@ class NativeTests(unittest.TestCase):
         finally:
             server.shutdown(); server.server_close(); thread.join(2)
 
-    def lamp_keyboard(self):
+    def lamp_keyboard(self) -> MagicMock:
         keyboard = MagicMock()
         keyboard.__enter__.return_value = keyboard
         keyboard.w = 400
         keyboard.lamps.return_value = [{'id': i, 'x': i * 100 + 50, 'programmable': True, 'key_usage': 4 + i} for i in range(4)]
         return keyboard
 
-    def test_zones_apply_full_color_without_brightness(self):
+    def test_zones_apply_full_color_without_brightness(self) -> None:
         c = self.controls
         c.keyboard, c.vendor = self.lamp_keyboard(), Mock()
         c.command('set_per_zone_mode', {'zone1': 'ff0000', 'zone2': '00ff00', 'zone3': '0000ff', 'zone4': 'ffffff'})
@@ -285,7 +285,7 @@ class NativeTests(unittest.TestCase):
         c.vendor.effect.assert_called_once_with(0, (255, 0, 0), 5, 100, mag=True)
         self.assertEqual({'kind': 'zones', 'colors': ['ff0000', '00ff00', '0000ff', 'ffffff']}, c.lighting['keyboard'])
 
-    def test_restore_replays_saved_lighting_without_changing_it(self):
+    def test_restore_replays_saved_lighting_without_changing_it(self) -> None:
         c = self.controls
         c.keyboard, c.vendor, c.logo = self.lamp_keyboard(), Mock(), Mock()
         c.vendor.MAG_EFFECTS = VendorKeyboard.MAG_EFFECTS
@@ -303,7 +303,7 @@ class NativeTests(unittest.TestCase):
         c.logo.effect.assert_called_once_with(0, (0, 0, 255), 5, 60, 1)
         self.assertEqual(saved, c.state_file.read_text())
 
-    def test_restore_replays_zones_and_effects(self):
+    def test_restore_replays_zones_and_effects(self) -> None:
         c = self.controls
         c.keyboard, c.vendor = self.lamp_keyboard(), Mock()
         c.lighting = {'keyboard': {'kind': 'zones', 'colors': ['ff0000'] * 4}}
@@ -314,10 +314,10 @@ class NativeTests(unittest.TestCase):
         c.restore_lighting()
         c.vendor.effect.assert_called_once_with(1, (16, 32, 48), 2, 40, 1)
 
-    def test_fans_return_to_automatic_even_if_one_write_fails(self):
+    def test_fans_return_to_automatic_even_if_one_write_fails(self) -> None:
         (self.hwmon / 'pwm2_enable').write_text('1')
         original = self.controls._write
-        def fail_first(path, value):
+        def fail_first(path: str | Path, value: object) -> None:
             if Path(path).name == 'pwm1_enable':
                 raise OSError('busy')
             original(path, value)
@@ -325,7 +325,7 @@ class NativeTests(unittest.TestCase):
             self.controls.auto_fans()
         self.assertEqual('2', (self.hwmon / 'pwm2_enable').read_text())
 
-    def test_daemon_auto_fans_option_restores_firmware_control(self):
+    def test_daemon_auto_fans_option_restores_firmware_control(self) -> None:
         for i in (1, 2):
             (self.hwmon / f'pwm{i}_enable').write_text('1')
         with patch('sys.argv', ['daemon', '--auto-fans', '--state-file', str(self.root / 'state.json')]), \
@@ -333,7 +333,7 @@ class NativeTests(unittest.TestCase):
             daemon.main()
         self.assertEqual(['2', '2'], [(self.hwmon / f'pwm{i}_enable').read_text() for i in (1, 2)])
 
-    def test_hid_discovery_reads_the_injected_sysfs_root(self):
+    def test_hid_discovery_reads_the_injected_sysfs_root(self) -> None:
         for name, uevent, descriptor in (('hidraw3', 'HID_NAME=ACER Keyboard\n', b'\x06\x02\xff\x09'),
                                          ('hidraw5', 'HID_ID=0003:00000D62:0000BA51\n', b'')):
             device = self.root / 'class/hidraw' / name / 'device'
@@ -343,7 +343,7 @@ class NativeTests(unittest.TestCase):
         self.assertEqual('/dev/hidraw3', VendorKeyboard.discover(self.root).path)
         self.assertEqual('/dev/hidraw5', CoverLogo.discover(self.root).path)
 
-    def test_uevents_report_subsystem_and_treat_overflow_as_change(self):
+    def test_uevents_report_subsystem_and_treat_overflow_as_change(self) -> None:
         message = b'add@/devices/x/hidraw/hidraw3\0ACTION=add\0SUBSYSTEM=hidraw\0DEVNAME=hidraw3\0'
         self.assertEqual('hidraw', uevents.parse(message)['SUBSYSTEM'])
         self.assertEqual({}, uevents.parse(b'libudev\0SUBSYSTEM=hidraw\0'))

@@ -17,13 +17,13 @@ EVENT = struct.Struct('@llHHi')
 log = logging.getLogger('fedorizer.button')
 
 
-def button_pressed(kind, code, value, vendor):
+def button_pressed(kind: int, code: int, value: int, vendor: bool) -> bool:
     # PH16-72's vendor interface uses ABS_MISC; old WMI devices use KEY_PROG3.
     return value == 1 and ((vendor and kind == 3 and code == 40) or
                            (not vendor and kind == 1 and code == 202))
 
 
-def button_devices(root=Path('/sys/class/input')):
+def button_devices(root: Path = Path('/sys/class/input')) -> dict[Path, bool]:
     devices = {}
     for event in root.glob('event*'):
         try:
@@ -38,7 +38,7 @@ def button_devices(root=Path('/sys/class/input')):
     return devices
 
 
-def launch(uid):
+def launch(uid: int) -> None:
     user = pwd.getpwuid(uid)
     runtime = f'/run/user/{uid}'
     if not Path(runtime, 'bus').exists():
@@ -54,7 +54,7 @@ def launch(uid):
         log.warning('Desktop launch failed: %s', result.stderr.strip())
 
 
-def monitor(uid):
+def monitor(uid: int) -> None:
     # Input devices are rescanned only when the kernel reports an input hotplug event.
     hotplug = uevents.open_socket()
     handles = {}
@@ -96,6 +96,6 @@ def monitor(uid):
                 handles.pop(path)
 
 
-def start(uid):
+def start(uid: int) -> None:
     if uid > 0 and os.geteuid() == 0:
         threading.Thread(target=monitor, args=(uid,), daemon=True, name='predator-button').start()

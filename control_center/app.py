@@ -5,16 +5,17 @@ import copy
 import math
 import queue
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import gi
 
 gi.require_version('Gtk','4.0')
 gi.require_version('Adw','1')
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from . import display, installation, preview
-from .client import ControlClient
+from .client import ControlClient, JsonDict
 from .markdown_view import markdown_view
 from .models import (
     EFFECT_NAMES,
@@ -42,7 +43,7 @@ PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-v
                'balanced':'power-profile-balanced-symbolic','balanced-performance':'power-profile-performance-symbolic',
                'performance':'weather-storm-symbolic'}
 
-def button(text, callback, css=''):
+def button(text: str, callback: Callable[[Gtk.Button], None], css: str = '') -> Gtk.Button:
     widget=Gtk.Button(label=text,valign=Gtk.Align.CENTER)
     widget.add_css_class('control-button')
     if css: widget.add_css_class(css)
@@ -50,7 +51,7 @@ def button(text, callback, css=''):
     return widget
 
 
-def suffix_row(title, value='', subtitle=None):
+def suffix_row(title: str, value: str = '', subtitle: str | None = None) -> tuple[Adw.ActionRow, Gtk.Label]:
     row=Adw.ActionRow(title=title,subtitle=subtitle or '')
     value_label=label(value,'dim-label')
     value_label.set_wrap(False)
@@ -58,23 +59,23 @@ def suffix_row(title, value='', subtitle=None):
     return row,value_label
 
 
-def number_text(value, unit='', digits=0, missing='Unavailable'):
+def number_text(value: float | None, unit: str = '', digits: int = 0, missing: str = 'Unavailable') -> str:
     return f'{value:.{digits}f}{unit}' if value is not None else missing
 
 
 class Workers:
     """A few reused daemon threads; closing the window never waits for an in-flight call."""
-    def __init__(self, count=4):
+    def __init__(self, count: int = 4) -> None:
         self.jobs=queue.SimpleQueue()
         for _ in range(count): threading.Thread(target=self.run,daemon=True).start()
-    def run(self):
+    def run(self) -> None:
         while True: self.jobs.get()()
-    def submit(self, job):
+    def submit(self, job: Callable[[], None]) -> None:
         self.jobs.put(job)
 
 
 class MainWindow(Adw.ApplicationWindow):
-    def __init__(self, application, demo=False):
+    def __init__(self, application: 'Application', demo: bool = False) -> None:
         super().__init__(application=application,title='Acer Fedorizer',default_width=1160,default_height=900)
         self.demo=demo; self.closed=False; self.pending=False; self.polling=False; self.display_pending=False
         self.client=preview.PreviewClient() if demo else ControlClient()
@@ -98,7 +99,7 @@ class MainWindow(Adw.ApplicationWindow):
         else: self.refresh()
         self.timer=GLib.timeout_add_seconds(2,self.refresh)
 
-    def build(self):
+    def build(self) -> None:
         css=Gtk.CssProvider()
         css.load_from_path(str(Path(__file__).with_name('style.css')))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(),css,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -161,7 +162,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.nav=nav
         nav.select_row(self.nav_rows['overview'])
 
-    def navigate(self, _, row):
+    def navigate(self, _: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None: return
         self.stack.set_visible_child_name(row.page_name)
         self.window_title.set_title(next(p[1] for p in PAGES if p[0]==row.page_name))
@@ -173,7 +174,7 @@ class MainWindow(Adw.ApplicationWindow):
                 display.watch(self.refresh_display)
             self.refresh_display()
 
-    def build_overview(self):
+    def build_overview(self) -> None:
         page=self.pages['overview']
         hero=box(12); hero.add_css_class('hero')
         line=box(12,True); heading=label('CURRENT PERFORMANCE PROFILE','eyebrow'); heading.set_hexpand(True); line.append(heading)
@@ -208,7 +209,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.core_labels=[]
         page.append(group)
 
-    def build_performance(self):
+    def build_performance(self) -> None:
         page=self.pages['performance']
         self.profile_group=Adw.PreferencesGroup(title='Performance Profiles',description='Select a performance profile, then apply it.')
         self.profile_tiles=ModeTiles()
@@ -239,7 +240,7 @@ class MainWindow(Adw.ApplicationWindow):
         page.append(self.extras)
         self.update_fan_sensitivity()
 
-    def fan_row(self,title,value):
+    def fan_row(self, title: str, value: float) -> tuple[Gtk.Scale, Gtk.Label]:
         row=Adw.ActionRow(title=title)
         slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,1,99,1)
         slider.set_value(value); slider.set_draw_value(True); slider.set_value_pos(Gtk.PositionType.RIGHT)
@@ -248,7 +249,7 @@ class MainWindow(Adw.ApplicationWindow):
         row.add_suffix(slider); row.add_suffix(rpm); self.fan_group.add(row)
         return slider,rpm
 
-    def build_lighting(self):
+    def build_lighting(self) -> None:
         page=self.pages['lighting']
         keyboard_box=box(12); keyboard_box.add_css_class('keyboard-card')
         line=box(12,True); heading=label('KEYBOARD LAYOUT','eyebrow'); heading.set_hexpand(True); line.append(heading)
@@ -288,7 +289,7 @@ class MainWindow(Adw.ApplicationWindow):
         bottom.append(self.effect_note)
         self.light_apply=button('Apply lighting',self.apply_lighting,'suggested-action'); bottom.append(self.light_apply); page.append(bottom)
 
-    def scale_row(self,title,minimum,maximum,value):
+    def scale_row(self, title: str, minimum: float, maximum: float, value: float) -> tuple[Adw.ActionRow, Gtk.Scale]:
         row=Adw.ActionRow(title=title)
         slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,minimum,maximum,1)
         slider.set_value(value); slider.set_draw_value(True); slider.set_value_pos(Gtk.PositionType.RIGHT)
@@ -296,7 +297,7 @@ class MainWindow(Adw.ApplicationWindow):
         row.add_suffix(slider); self.light_group.add(row)
         return row,slider
 
-    def build_battery(self):
+    def build_battery(self) -> None:
         page=self.pages['battery']
         hero=box(12); hero.add_css_class('hero'); hero.append(label('BATTERY CHARGE','eyebrow'))
         self.battery_value=label('—','hero-value'); hero.append(self.battery_value)
@@ -315,7 +316,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.calibration.add_suffix(button('Stop',lambda *_: self.mutate('set_battery_calibration',{'enabled': False}),'flat'))
         controls.add(self.calibration); page.append(controls)
 
-    def build_display(self):
+    def build_display(self) -> None:
         page=self.pages['display']
         hero=box(12); hero.add_css_class('hero'); hero.append(label('BUILT-IN DISPLAY','eyebrow'))
         hero.append(label('Native SDR color management','title-1'))
@@ -332,7 +333,7 @@ class MainWindow(Adw.ApplicationWindow):
         page.append(note)
         self.display_state={}
 
-    def build_diagnostics(self):
+    def build_diagnostics(self) -> None:
         page=self.pages['diagnostics']
         self.status_group=Adw.PreferencesGroup(title='Installation status',description='Not checked. Refresh to check the installed files, service, and driver.')
         actions=box(8,True)
@@ -363,18 +364,18 @@ class MainWindow(Adw.ApplicationWindow):
         row.add_suffix(button('View notices',lambda *_: self.show_credits(),'flat')); group.add(row); page.append(group)
 
 
-    def open_installation_status(self,*_):
+    def open_installation_status(self, *_: object) -> None:
         self.nav.select_row(self.nav_rows['diagnostics'])
         self.refresh_installation()
 
-    def refresh_installation(self,*_):
+    def refresh_installation(self, *_: object) -> None:
         if self.status_pending: return
         self.status_pending=True
         self.status_button.set_sensitive(False); self.status_spinner.start()
         self.status_group.set_description('Checking installation…')
         self.async_call(preview.installation_status if self.demo else installation.collect_status,self.receive_installation_status)
 
-    def receive_installation_status(self,report,error):
+    def receive_installation_status(self, report: JsonDict | None, error: str | None) -> None:
         self.status_pending=False
         self.status_button.set_sensitive(True); self.status_spinner.stop()
         if error:
@@ -398,18 +399,18 @@ class MainWindow(Adw.ApplicationWindow):
         timestamp='10:30:00' if self.demo else GLib.DateTime.new_now_local().format('%H:%M:%S')
         self.status_group.set_description(summary+' · Checked '+timestamp+(' · Preview data' if self.demo else ''))
 
-    def async_call(self, function, callback):
-        def work():
+    def async_call[T](self, function: Callable[[], T], callback: Callable[[T | None, str | None], None]) -> None:
+        def work() -> None:
             try: result,error=function(),None
             # Worker boundary: any failure is reported in the window instead of ending the thread.
             except Exception as exc: result,error=None,str(exc)  # noqa: BLE001
-            def deliver():
+            def deliver() -> bool:
                 if not self.closed: callback(result,error)
                 return False
             GLib.idle_add(deliver)
         self.workers.submit(work)
 
-    def refresh(self):
+    def refresh(self) -> bool:
         if self.closed: return False
         if self.polling or self.pending or not self.on_screen(): return True
         if self.demo:
@@ -419,12 +420,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.polling=True
         overview=self.stack.get_visible_child_name()=='overview'
         gpu=self.gpu_enabled and overview
-        def work():
+        def work() -> tuple[JsonDict | None, str | None, JsonDict]:
             try: state,error=self.client.command('get_all_settings'),None
             except (OSError,ValueError,RuntimeError) as exc: state,error=None,str(exc)
             metrics=self.telemetry.sample(gpu) if overview else {'battery': self.telemetry.battery()}
             return state,error,metrics
-        def received(result,error):
+        def received(result: tuple[JsonDict | None, str | None, JsonDict] | None, error: str | None) -> None:
             self.polling=False
             if error: self.receive_state(None,error); return
             state,error,metrics=result
@@ -432,17 +433,17 @@ class MainWindow(Adw.ApplicationWindow):
         self.async_call(work,received)
         return True
 
-    def on_screen(self):
+    def on_screen(self) -> bool:
         surface=self.get_surface()
         if surface is None: return True
         hidden=Gdk.ToplevelState.MINIMIZED|getattr(Gdk.ToplevelState,'SUSPENDED',0)
         return not surface.get_state()&hidden
 
-    def surface_changed(self,*_):
+    def surface_changed(self, *_: object) -> None:
         # Polling pauses while minimized or suspended; catch up as soon as the window is shown.
         if self.on_screen(): self.refresh()
 
-    def update_sensitivity(self):
+    def update_sensitivity(self) -> None:
         """Disable every control that could start a second change while one is pending."""
         features=self.state.get('available_features',[]) if self.connected else []
         ready=self.connected and not self.pending
@@ -454,7 +455,7 @@ class MainWindow(Adw.ApplicationWindow):
         for widget in (self.charge_limit,self.calibration,self.extras): widget.set_sensitive(ready)
         if self.editor: self.editor.apply.set_sensitive(ready)
 
-    def receive_state(self,state,error):
+    def receive_state(self, state: JsonDict | None, error: str | None) -> None:
         self.connected=state is not None
         self.banner.set_revealed(not self.connected)
         self.connection_label.set_text('Preview · no hardware access' if self.demo else 'Hardware service connected' if self.connected else 'Hardware service unavailable')
@@ -508,7 +509,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.capability_text.set_text('  ·  '.join(feature.replace('_',' ').title() for feature in features))
         finally: self.updating=False
 
-    def receive_metrics(self,metrics):
+    def receive_metrics(self, metrics: JsonDict) -> None:
         if 'cpu_usage' in metrics:
             self.cpu_value.set_text(number_text(metrics.get('cpu_usage'),'%',1,missing='Sampling…'))
             self.cpu_detail.set_text('Temperature '+number_text(metrics.get('cpu_temperature'),'°C'))
@@ -540,7 +541,7 @@ class MainWindow(Adw.ApplicationWindow):
             value=battery.get(key)
             widget.set_text(number_text(value,'%',1) if key=='health' else number_text(value,'',0) if key=='cycles' else str(value or 'Unavailable'))
 
-    def gpu_toggled(self,*_):
+    def gpu_toggled(self, *_: object) -> None:
         self.gpu_enabled=self.gpu_switch.get_active()
         if not self.gpu_enabled:
             self.gpu_value.set_text('Paused')
@@ -549,12 +550,12 @@ class MainWindow(Adw.ApplicationWindow):
             self.vram.set_fraction(0); self.vram.set_text('VRAM · monitoring paused')
         self.refresh()
 
-    def mutate(self,command,params,callback=None):
+    def mutate(self, command: str, params: JsonDict, callback: Callable[[object, str | None], None] | None = None) -> None:
         """Apply one change at a time; callback(result, error) runs after the shared handling."""
         if self.pending: return
         self.pending=True
         self.update_sensitivity()
-        def done(result,error):
+        def done(result: object, error: str | None) -> None:
             self.pending=False
             if error: self.toast.add_toast(Adw.Toast(title='Could not apply: '+error,timeout=8))
             else:
@@ -566,45 +567,45 @@ class MainWindow(Adw.ApplicationWindow):
             if not self.closed: self.refresh()
         self.async_call(lambda:self.client.command(command,params),done)
 
-    def apply_profile(self,*_):
+    def apply_profile(self, *_: object) -> None:
         index=self.profile_tiles.get_selected()
         if index<len(self.profile_choices): self.mutate('set_thermal_profile',{'profile': self.profile_choices[index]})
-    def load_fan_draft(self,values):
+    def load_fan_draft(self, values: JsonDict) -> None:
         # Seeds the editing draft once from firmware; later refreshes must not discard edits.
         speeds=[int(v) if str(v).isdecimal() else 0 for v in (values.get('cpu','0'),values.get('gpu','0'))]
         self.fan_mode.set_selected(0 if speeds==[0,0] else 1 if speeds==[100,100] else 2)
         for slider,speed in zip((self.cpu_slider,self.gpu_slider),speeds,strict=True):
             if 0<speed<100: slider.set_value(speed)
         self.update_fan_sensitivity()
-    def update_fan_sensitivity(self):
+    def update_fan_sensitivity(self) -> None:
         if not hasattr(self,'cpu_slider'): return
         manual=self.fan_mode.get_selected()==2
         self.cpu_slider.set_sensitive(manual); self.gpu_slider.set_sensitive(manual)
-    def apply_fans(self,*_):
+    def apply_fans(self, *_: object) -> None:
         mode=self.fan_mode.get_selected()
         values=(0,0) if mode==0 else (100,100) if mode==1 else (round(self.cpu_slider.get_value()),round(self.gpu_slider.get_value()))
         self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})
-    def charge_changed(self,row,*_):
+    def charge_changed(self, row: Adw.SwitchRow, *_: object) -> None:
         if not self.updating: self.mutate('set_battery_limiter',{'enabled': row.get_active()})
-    def extra_toggled(self,row,_,key):
+    def extra_toggled(self, row: Adw.SwitchRow, _: GObject.ParamSpec, key: str) -> None:
         if not self.updating: self.mutate('set_'+key,{'enabled': row.get_active()})
-    def usb_changed(self,row,*_):
+    def usb_changed(self, row: Adw.ComboRow, *_: object) -> None:
         if not self.updating: self.mutate('set_usb_charging',{'level': [0,10,20,30][row.get_selected()]})
 
-    def capture_draft(self):
+    def capture_draft(self) -> None:
         if self.current_target and self.effect_ids:
             index=self.effect_combo.get_selected()
             mode=self.effect_ids[min(index,len(self.effect_ids)-1)]
             color=hex_rgba(self.color_button.get_rgba()) if uses_palette(self.current_target,mode) else self.color_entry.get_text()
             zones=tuple(hex_rgba(picker.get_rgba()) for picker in self.zone_buttons)
             self.drafts[self.current_target]=LightingDraft(mode,color,round(self.brightness.get_value()),round(self.speed.get_value()),self.direction.get_selected()+1,self.link_wasd.get_active(),zones)
-    def target_changed(self,*_):
+    def target_changed(self, *_: object) -> None:
         if self.lighting_loading: return
         self.capture_draft()
         index=self.target_combo.get_selected()
         self.current_target=self.targets[index] if index<len(self.targets) else None
         self.load_draft()
-    def load_draft(self):
+    def load_draft(self) -> None:
         if not self.current_target: return
         modes=self.state.get('lighting_modes',{}).get(self.current_target,[])
         if not modes: return
@@ -621,7 +622,7 @@ class MainWindow(Adw.ApplicationWindow):
         for picker,zone in zip(self.zone_buttons,draft.zones,strict=True): picker.set_rgba(color_rgba(zone))
         self.lighting_loading=False
         self.effect_changed()
-    def effect_changed(self,*_):
+    def effect_changed(self, *_: object) -> None:
         if not self.effect_ids: return
         index=self.effect_combo.get_selected()
         if index>=len(self.effect_ids): return
@@ -637,49 +638,49 @@ class MainWindow(Adw.ApplicationWindow):
             'Wave uses a firmware palette. Linked WASD and keyboard animations run independently.' if mode==3 else
             'This effect uses its firmware color palette.' if palette else
             'All lights share settings; their animation timing can differ.' if self.current_target=='all' else 'Last successful command is saved; hardware effect readback is unavailable.')
-    def color_entered(self,*_):
+    def color_entered(self, *_: object) -> None:
         try: self.color_button.set_rgba(color_rgba(rgb_hex(self.color_entry.get_text())))
         except ValueError as error: self.toast.add_toast(Adw.Toast(title=str(error)))
-    def apply_lighting(self,*_):
+    def apply_lighting(self, *_: object) -> None:
         self.capture_draft()
         target=self.current_target
         if not target or target not in self.drafts: return
         try: command,params=self.drafts[target].request(target)
         except ValueError as error: self.toast.add_toast(Adw.Toast(title=str(error))); return
-        def applied(_,error):
+        def applied(_: object, error: str | None) -> None:
             if error: return
             self.drafts.pop(target,None)
             # Zones and linked keyboard effects also set WASD; 'all' sets every device.
             if target=='keyboard' and (command=='set_per_zone_mode' or params['link_wasd']): self.drafts.pop('wasd',None)
             if target=='all': self.drafts.clear()
         self.mutate(command,params,applied)
-    def load_layout(self):
+    def load_layout(self) -> None:
         self.async_call(lambda:self.client.command('get_keyboard_layout'),lambda result,error:self.set_layout(result) if not error else None)
-    def set_layout(self,layout):
+    def set_layout(self, layout: JsonDict) -> None:
         self.layout=layout
         saved=self.state.get('lighting_state',{}).get('per_key',{}).get('colors',{})
         self.keyboard_canvas.set_layout(layout.get('lamps',[]),full_key_map(layout.get('lamps',[]),saved))
-    def open_editor(self,*_):
+    def open_editor(self, *_: object) -> None:
         if not self.layout:
             self.async_call(lambda:self.client.command('get_keyboard_layout'),self.editor_layout)
         else: self.editor_layout(self.layout,None)
-    def editor_layout(self,layout,error):
+    def editor_layout(self, layout: JsonDict | None, error: str | None) -> None:
         if error: self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)); return
         self.set_layout(layout)
         self.editor=KeyEditor(self,layout)
         self.update_sensitivity()
         self.editor.present()
 
-    def refresh_display(self):
+    def refresh_display(self) -> None:
         if self.display_pending: return
         if self.demo:
             self.receive_display(self.display_state or {'available': True,'enabled': False,'connector': 'eDP-1','mode': 'default','message': 'Preview panel'}); return
         self.display_pending=True
-        def done(result,error):
+        def done(result: JsonDict | None, error: str | None) -> None:
             self.display_pending=False
             self.receive_display(result or {'available': False,'enabled': False,'message': error or 'Unavailable'})
         self.async_call(lambda:display.run('status'),done)
-    def receive_display(self,state):
+    def receive_display(self, state: JsonDict) -> None:
         self.display_state=state
         self.updating=True
         self.display_switch.set_active(state.get('enabled',False))
@@ -688,14 +689,14 @@ class MainWindow(Adw.ApplicationWindow):
         self.display_mode.set_text({'default':'Default SDR','sdr-native':'Native SDR','bt2100':'HDR'}.get(state.get('mode'),'Unavailable'))
         self.display_note.set_text(state.get('message',''))
         self.updating=False
-    def display_toggled(self,row,*_):
+    def display_toggled(self, row: Adw.SwitchRow, *_: object) -> None:
         if self.updating: return
         enabled=row.get_active()
         if self.demo:
             self.receive_display(dict(self.display_state,enabled=enabled,mode='sdr-native' if enabled else 'default')); return
         row.set_sensitive(False)
         self.display_pending=True
-        def done(result,error):
+        def done(result: JsonDict | None, error: str | None) -> None:
             self.display_pending=False
             if error:
                 self.toast.add_toast(Adw.Toast(title='Display change failed: '+error,timeout=8))
@@ -703,7 +704,7 @@ class MainWindow(Adw.ApplicationWindow):
             else: self.receive_display(result)
         self.async_call(lambda:display.run('enable' if enabled else 'disable',self.display_state.get('connector')),done)
 
-    def show_credits(self):
+    def show_credits(self) -> None:
         window=Adw.Window(title='Licenses and credits',transient_for=self,modal=True,default_width=760,default_height=660)
         toolbar=Adw.ToolbarView(); toolbar.add_top_bar(Adw.HeaderBar())
         path=Path(__file__).resolve().parents[1]/'NOTICE.md'
@@ -715,7 +716,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.credits_window=window
         content.set_focusable(True); window.set_focus(content); window.present()
 
-    def on_close(self,*_):
+    def on_close(self, *_: object) -> bool:
         self.closed=True
         if hasattr(self,'timer'): GLib.source_remove(self.timer)
         # Closing never sends a hardware command. In-flight workers are daemon threads.
@@ -724,7 +725,7 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 class KeyEditor(Adw.Window):
-    def __init__(self,parent,layout):
+    def __init__(self, parent: MainWindow, layout: JsonDict) -> None:
         super().__init__(title='Per-key lighting',transient_for=parent,modal=True,default_width=1020,default_height=600)
         self.parent=parent
         self.colors=full_key_map(layout['lamps'],parent.state.get('lighting_state',{}).get('per_key',{}).get('colors',{}))
@@ -755,30 +756,30 @@ class KeyEditor(Adw.Window):
         self.apply=button('Apply keyboard colors',self.submit,'suggested-action'); row.append(self.apply); content.append(row)
         self.result=label('The current preview is an editing draft, not a hardware readback.','dim-label'); content.append(self.result)
         toolbar.set_content(content); self.set_content(toolbar)
-    def select_all(self):
+    def select_all(self) -> None:
         self.canvas.selected={int(key) for key in self.colors}; self.canvas.queue_draw()
         self.canvas.on_selection(len(self.canvas.selected))
-    def clear_selection(self):
+    def clear_selection(self) -> None:
         self.canvas.selected.clear(); self.canvas.queue_draw(); self.canvas.on_selection(0)
-    def paint(self,*_):
+    def paint(self, *_: object) -> None:
         color=hex_rgba(self.picker.get_rgba())
         for lid in self.canvas.selected:
             if str(lid) in self.colors: self.colors[str(lid)]=color
         self.canvas.colors=self.colors; self.canvas.queue_draw()
-    def submit(self,*_):
+    def submit(self, *_: object) -> None:
         colors=copy.deepcopy(self.colors)
         params={'colors':colors,'brightness':round(self.brightness.get_value())}
-        def done(_,error):
+        def done(_: object, error: str | None) -> None:
             self.result.set_text('Could not apply: '+error if error else 'Preview updated · no hardware changed' if self.parent.demo else 'Static layout applied. Confirm the visible result on your keyboard.')
             if not error: self.parent.keyboard_canvas.set_layout(self.parent.layout['lamps'],colors)
         self.parent.mutate('set_per_key',params,done)
 
 
 class Application(Adw.Application):
-    def __init__(self,demo=False,screenshots=None):
+    def __init__(self, demo: bool = False, screenshots: str | None = None) -> None:
         super().__init__(application_id='io.github.SergiiChr.AcerFedorizer'+('.Preview' if demo else ''),flags=Gio.ApplicationFlags.NON_UNIQUE if demo else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.demo=demo; self.screenshots=screenshots
-    def do_activate(self):
+    def do_activate(self) -> None:
         window=self.get_active_window()
         if window: window.present(); return
         manager=Adw.StyleManager.get_default()

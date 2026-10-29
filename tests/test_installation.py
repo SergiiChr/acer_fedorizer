@@ -8,9 +8,9 @@ from control_center.installation import collect_status
 
 
 class InstallationTests(unittest.TestCase):
-    def test_timeout_is_reported_as_unknown_without_privilege_escalation(self):
+    def test_timeout_is_reported_as_unknown_without_privilege_escalation(self) -> None:
         calls=[]
-        def run(args,**kwargs):
+        def run(args: list[str],**kwargs: object) -> subprocess.CompletedProcess[str]:
             calls.append(args)
             if args[0]=='uname': return subprocess.CompletedProcess(args,0,'test-kernel\n','')
             raise subprocess.TimeoutExpired(args,5)
@@ -23,9 +23,9 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(report['healthy'])
         self.assertTrue(all(args[0] in ('uname','systemctl') for args in calls))
 
-    def test_dkms_other_kernel_does_not_pass_current_kernel_check(self):
+    def test_dkms_other_kernel_does_not_pass_current_kernel_check(self) -> None:
         calls=[]
-        def run(args,**kwargs):
+        def run(args: list[str],**kwargs: object) -> subprocess.CompletedProcess[str]:
             calls.append(args)
             output='test-kernel\n' if args[0]=='uname' else 'laptop-lightbar/0.2.0, old-kernel, x86_64: installed\n' if args[0]=='dkms' else 'active\n'
             return subprocess.CompletedProcess(args,0,output,'')
@@ -38,8 +38,8 @@ class InstallationTests(unittest.TestCase):
         self.assertIn('test-kernel',check['detail'])
         self.assertEqual(calls[-1],['dkms','status','-m','laptop-lightbar','-v','0.2.0','-k','test-kernel'])
 
-    def test_missing_dkms_reports_unknown_and_keeps_other_results(self):
-        def run(args,**kwargs):
+    def test_missing_dkms_reports_unknown_and_keeps_other_results(self) -> None:
+        def run(args: list[str],**kwargs: object) -> subprocess.CompletedProcess[str]:
             if args[0]=='dkms': raise FileNotFoundError('DKMS is missing')
             return subprocess.CompletedProcess(args,0,'test-kernel' if args[0]=='uname' else 'active','')
         with tempfile.TemporaryDirectory() as folder:

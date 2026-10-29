@@ -11,7 +11,10 @@ display = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(display)
 
 
-def monitor(connector, builtin=False, color=0, active=True):
+Monitor = tuple[tuple[str, str, str, str], list[tuple[object, ...]], dict[str, object]]
+
+
+def monitor(connector: str, builtin: bool = False, color: int = 0, active: bool = True) -> Monitor:
     identity = (connector, "vendor", "product", connector + "-serial")
     modes = [("exact-165.003-vrr", 2560, 1600, 165.003, 1.25, [1.0, 1.25],
               {"is-current": active, "refresh-rate-mode": "variable"})]
@@ -19,7 +22,7 @@ def monitor(connector, builtin=False, color=0, active=True):
                               "color-mode": color, "rgb-range": 2, "is-underscanning": True})
 
 
-def state():
+def state() -> tuple[int, list[Monitor], list[tuple[object, ...]], dict[str, object]]:
     panel = monitor("eDP-3", builtin=True)
     external = monitor("DP-2", color=1)
     mirror = monitor("HDMI-1", color=2)
@@ -33,7 +36,7 @@ def state():
 
 
 class DisplayConfigTests(unittest.TestCase):
-    def test_preserves_layout_modes_mirroring_and_properties(self):
+    def test_preserves_layout_modes_mirroring_and_properties(self) -> None:
         before = state()
         original = copy.deepcopy(before)
         serial, method, logical, props = display.build_configuration(before, "eDP-3", True)
@@ -49,14 +52,14 @@ class DisplayConfigTests(unittest.TestCase):
         self.assertNotIn("DP-4", [m[0] for lm in logical for m in lm[5]])
         self.assertEqual(before, original)
 
-    def test_disable_restores_default(self):
+    def test_disable_restores_default(self) -> None:
         current = state()
         current[1][0][2]["color-mode"] = 2
         self.assertTrue(display.panel_status(current)["enabled"])
         result = display.build_configuration(current, "eDP-3", False)
         self.assertEqual(result[2][0][5][0][2]["color-mode"], 0)
 
-    def test_refuses_unsupported_inactive_hdr_and_ambiguous_panels(self):
+    def test_refuses_unsupported_inactive_hdr_and_ambiguous_panels(self) -> None:
         for change in (lambda s: s[1][0][2].update({"supported-color-modes": [0]}),
                        lambda s: s[1][0][2].update({"is-builtin": False}),
                        lambda s: s[1][1][2].update({"is-builtin": True}),
@@ -70,7 +73,7 @@ class DisplayConfigTests(unittest.TestCase):
                     display.build_configuration(current, "eDP-3", True)
         self.assertFalse(display.panel_status(state(), allowed=False)["available"])
 
-    def test_refuses_connector_change_and_unknown_current_mode(self):
+    def test_refuses_connector_change_and_unknown_current_mode(self) -> None:
         with self.assertRaises(ValueError):
             display.build_configuration(state(), "eDP-1", True)
         current = state()
@@ -78,28 +81,28 @@ class DisplayConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Cannot preserve"):
             display.build_configuration(current, "eDP-3", True)
 
-    def test_no_layout_property_when_changes_are_unsupported(self):
+    def test_no_layout_property_when_changes_are_unsupported(self) -> None:
         current = state()
         current[3].pop("supports-changing-layout-mode")
         self.assertNotIn("layout-mode", display.build_configuration(current, "eDP-3", True)[3])
 
     @unittest.skipUnless(importlib.util.find_spec("gi"), "PyGObject is optional outside GNOME")
-    def test_real_glib_variant_and_persistent_dbus_call(self):
+    def test_real_glib_variant_and_persistent_dbus_call(self) -> None:
         from gi.repository import Gio, GLib
         initial = state()
         after = state()
         after[1][0][2]["color-mode"] = 2
 
         class Reply:
-            def __init__(self, value): self.value = value
-            def unpack(self): return self.value
+            def __init__(self, value: object) -> None: self.value = value
+            def unpack(self) -> object: return self.value
 
         class Proxy:
-            def __init__(self): self.calls = []
-            def get_name_owner(self): return ":1.123"
-            def set_default_timeout(self, value): pass
-            def get_cached_property(self, name): return GLib.Variant("b", True)
-            def call_sync(self, method, args, *unused):
+            def __init__(self) -> None: self.calls = []
+            def get_name_owner(self) -> str: return ":1.123"
+            def set_default_timeout(self, value: int) -> None: pass
+            def get_cached_property(self, name: str) -> GLib.Variant: return GLib.Variant("b", True)
+            def call_sync(self, method: str, args: GLib.Variant, *unused: object) -> Reply:
                 self.calls.append((method, args))
                 return Reply(initial if len(self.calls) == 1 else after)
 
@@ -113,7 +116,7 @@ class DisplayConfigTests(unittest.TestCase):
         self.assertEqual(args.unpack(), display.build_configuration(initial, "eDP-3", True))
 
         # A stale serial or compositor rejection must propagate, without retrying an old layout.
-        def reject(method, *args):
+        def reject(method: str, *args: object) -> Reply:
             if method == "ApplyMonitorsConfig": raise RuntimeError("stale serial")
             return Reply(initial)
         proxy.call_sync = reject

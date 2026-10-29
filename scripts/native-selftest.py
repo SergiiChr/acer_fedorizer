@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hardware.controls import NativeControls
 
 
-def inspect_and_exercise(args, state_file):
+def inspect_and_exercise(args: argparse.Namespace, state_file: str) -> None:
     controls = NativeControls(state_file=state_file)
     print(json.dumps(controls.settings(), indent=2))
     if not args.exercise:
@@ -41,7 +41,7 @@ def inspect_and_exercise(args, state_file):
         sys.exit(1)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exercise', action='store_true')
     args = parser.parse_args()

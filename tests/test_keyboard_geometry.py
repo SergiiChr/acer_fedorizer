@@ -6,7 +6,7 @@ from control_center.preview import layout
 
 
 class KeyboardGeometryTests(unittest.TestCase):
-    def test_measured_offsets_do_not_create_spurious_rows(self):
+    def test_measured_offsets_do_not_create_spurious_rows(self) -> None:
         lamps=layout()['lamps']
         caps=keycaps(lamps)
         rows={round(y+h/2,2) for lamp,x,y,w,h in caps if lamp['key_usage']!=88}

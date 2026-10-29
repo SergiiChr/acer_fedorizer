@@ -3,9 +3,10 @@
 import os
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
-from .client import ControlClient
+from .client import ControlClient, JsonDict
 
 CHECKS=[('app','Application module'),('daemon','Daemon source files'),
         ('launcher','Desktop launcher'),('desktop','Desktop menu entry'),
@@ -14,13 +15,14 @@ CHECKS=[('app','Application module'),('daemon','Daemon source files'),
         ('module','Rear lightbar driver loaded'),('dkms','Rear lightbar driver installed for the running kernel')]
 
 
-def collect_status(root=Path('/'), run=subprocess.run):
+def collect_status(root: str | Path = Path('/'),
+                   run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run) -> JsonDict:
     root=Path(root)
-    def path(value): return root/value.lstrip('/')
-    checks=[]
-    def add(key,ok,detail):
+    def path(value: str) -> Path: return root/value.lstrip('/')
+    checks: list[JsonDict]=[]
+    def add(key: str, ok: bool | None, detail: str) -> None:
         checks.append({'key': key,'title': dict(CHECKS)[key],'ok': ok,'detail': detail})
-    def command(args):
+    def command(args: list[str]) -> tuple[bool | None, str]:
         try:
             result=run(args,capture_output=True,text=True,timeout=5,check=False)
             return result.returncode==0,(result.stdout.strip() or result.stderr.strip())
@@ -65,7 +67,7 @@ def collect_status(root=Path('/'), run=subprocess.run):
                 'installed': path('/opt/acer-fedorizer').exists()}
 
 
-def main():
+def main() -> int:
     report=collect_status()
     print('Acer Fedorizer installation status')
     print('Model: '+report['model']+'\nKernel: '+report['kernel'])

@@ -3,13 +3,15 @@
 """Bounded startup check: ping the new service before discarding rollback data."""
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from control_center.client import ControlClient
 
 
-def wait_for_daemon(path,timeout=10,client_factory=ControlClient,clock=time.monotonic,pause=time.sleep):
+def wait_for_daemon(path: str,timeout: float = 10,client_factory: Callable[..., ControlClient] = ControlClient,
+                    clock: Callable[[], float] = time.monotonic,pause: Callable[[float], object] = time.sleep) -> None:
     deadline=clock()+timeout
     last_error='No response'
     while True:

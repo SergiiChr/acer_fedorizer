@@ -2,14 +2,31 @@
 """Unprivileged Mutter session-bus bridge. No gdctl output parsing."""
 import json
 import sys
+from collections.abc import Callable
+from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gi.repository import GLib
 
 DEFAULT = 0
 SDR_NATIVE = 2
 INTERFACE = "org.gnome.Mutter.DisplayConfig"
 PATH = "/org/gnome/Mutter/DisplayConfig"
 
+# Shapes of Mutter GetCurrentState and ApplyMonitorsConfig D-Bus values after unpacking.
+MonitorSpec = tuple[str, str, str, str]
+Mode = tuple[str, int, int, float, float, list[float], dict[str, object]]
+Monitor = tuple[MonitorSpec, list[Mode], dict[str, object]]
+LogicalMonitor = tuple[int, int, float, int, bool, list[MonitorSpec], dict[str, object]]
+DisplayState = tuple[int, list[Monitor], list[LogicalMonitor], dict[str, object]]
+MonitorConfig = tuple[str, str, dict[str, object]]
+LogicalConfig = tuple[int, int, float, int, bool, list[MonitorConfig]]
+Configuration = tuple[int, int, list[LogicalConfig], dict[str, object]]
+PanelStatus = dict[str, bool | str]
 
-def panel_status(state, allowed=True):
+
+def panel_status(state: DisplayState, allowed: bool = True) -> PanelStatus:
     _, monitors, logical, _ = state
     panels = [m for m in monitors if m[2].get("is-builtin", False)]
     result = {"available": False, "enabled": False, "connector": "", "mode": "", "message": ""}
@@ -35,7 +52,7 @@ def panel_status(state, allowed=True):
     return result
 
 
-def build_configuration(state, connector, enabled):
+def build_configuration(state: DisplayState, connector: str | None, enabled: bool) -> Configuration:
     """Rebuild only writable API fields, keeping exact current mode IDs (incl. VRR)."""
     serial, monitors, logical, props = state
     status = panel_status(state)
@@ -69,7 +86,7 @@ def build_configuration(state, connector, enabled):
     return serial, 2, configs, config_props  # persistent, equivalent to gdctl set -P
 
 
-def configuration_variant(configuration, GLib):
+def configuration_variant(configuration: Configuration, GLib: ModuleType) -> "GLib.Variant":
     serial, method, logical, props = configuration
     typed_logical = []
     for x, y, scale, transform, primary, members in logical:
@@ -85,11 +102,11 @@ def configuration_variant(configuration, GLib):
                         (serial, method, typed_logical, typed_props))
 
 
-def watch(callback):
+def watch(callback: Callable[[], object]) -> None:
     """Call callback on the main loop whenever Mutter reports a monitor change; replaces polling."""
     from gi.repository import Gio, GLib
 
-    def connected(_, result):
+    def connected(_: object, result: Gio.AsyncResult) -> None:
         try:
             bus = Gio.bus_get_finish(result)
         except GLib.Error:
@@ -100,7 +117,7 @@ def watch(callback):
     Gio.bus_get(Gio.BusType.SESSION, None, connected)
 
 
-def run(action, connector=None):
+def run(action: str, connector: str | None = None) -> PanelStatus:
     try:
         from gi.repository import Gio, GLib
     except ImportError as exc:
@@ -112,7 +129,7 @@ def run(action, connector=None):
         raise RuntimeError("Display controls require a GNOME session with Mutter DisplayConfig support.")
     proxy.set_default_timeout(5000)
 
-    def read():
+    def read() -> DisplayState:
         return proxy.call_sync("GetCurrentState", None, Gio.DBusCallFlags.NONE, 5000, None).unpack()
 
     state = read()  # Always take a fresh snapshot immediately before applying.

@@ -6,12 +6,19 @@ Source text is escaped before passing it to Pango; raw HTML is never executed.
 """
 import html
 import re
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+if TYPE_CHECKING:
+    from gi.repository import Gtk
+
 INLINE=re.compile(r'(`[^`]+`|\*\*.+?\*\*|\[[^\]]+\]\([^\s]+\)|https?://[^\s<>]+|\*[^*]+\*)')
+# (kind, level, text) for headings, (kind, rows) for tables, (kind, text) for bullets and paragraphs.
+Block = tuple[str, int, str] | tuple[str, list[list[str]]] | tuple[str, str]
 
 
-def inline_markup(text):
+def inline_markup(text: str) -> str:
     parts=[]; offset=0
     for match in INLINE.finditer(text):
         parts.append(html.escape(text[offset:match.start()]))
@@ -39,7 +46,7 @@ def inline_markup(text):
     return ''.join(parts)
 
 
-def blocks(source):
+def blocks(source: str) -> Iterator[Block]:
     """Yield semantic blocks; join wrapped Markdown lines into whole paragraphs."""
     lines=source.splitlines(); index=0
     while index<len(lines):
@@ -64,7 +71,7 @@ def blocks(source):
         yield ('bullet' if bullet else 'paragraph',' '.join(content))
 
 
-def markdown_view(source):
+def markdown_view(source: str) -> "Gtk.Box":
     # GTK imports are local so formatting/escaping can be tested without a display.
     import gi
     gi.require_version('Gtk','4.0')
@@ -72,7 +79,7 @@ def markdown_view(source):
 
     from .widgets import box
 
-    def text(value, css=None):
+    def text(value: str, css: str | None = None) -> Gtk.Label:
         widget=Gtk.Label(xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR,
                          selectable=True,hexpand=True)
         widget.set_markup('<span line_height="1.25">'+inline_markup(value)+'</span>')

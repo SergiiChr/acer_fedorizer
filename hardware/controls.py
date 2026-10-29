@@ -10,40 +10,42 @@ import threading
 import time
 from pathlib import Path
 
-from .hid import CoverLogo, LampArrayDevice, VendorKeyboard, _scale_rgb
+from .hid import CoverLogo, Lamp, LampArrayDevice, Rgb, VendorKeyboard, _scale_rgb
 
 VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
 log = logging.getLogger('fedorizer')
+JsonDict = dict[str, object]
 
 
-def read(path, default=''):
+def read(path: str | Path, default: str = '') -> str:
     try:
         return Path(path).read_text().strip()
     except OSError:
         return default
 
 
-def integer(value, lo, hi):
+def integer(value: object, lo: int, hi: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
         raise ValueError(f'Expected integer {lo}–{hi}')
     return value
 
 
-def color(value):
+def color(value: object) -> Rgb:
     if not isinstance(value, str) or not re.fullmatch(r'#?[0-9a-fA-F]{6}', value):
         raise ValueError('Expected six-digit RGB color')
     return tuple(bytes.fromhex(value.lstrip('#')))
 
 
-def effect_params(p):
+def effect_params(p: JsonDict) -> tuple[int, Rgb, int, int, int]:
     """Validate (mode, rgb, speed, brightness, direction) from a request or saved state."""
     return (integer(p.get('mode', 0), 0, 9), color(p.get('color')), integer(p.get('speed', 5), 1, 9),
             integer(p.get('brightness', 100), 0, 100), integer(p.get('direction', 1), 1, 2))
 
 
 class NativeControls:
-    def __init__(self, sys_root='/sys', state_file='/var/lib/acer-fedorizer/lighting.json', discover_hid=True):
+    def __init__(self, sys_root: str | Path = '/sys', state_file: str | Path = '/var/lib/acer-fedorizer/lighting.json',
+                 discover_hid: bool = True) -> None:
         self.root = Path(sys_root)
         self.state_file = Path(state_file)
         self.lock = threading.RLock()
@@ -86,14 +88,14 @@ class NativeControls:
         except (OSError, ValueError):
             self.lighting = {}
 
-    def find_hid(self):
+    def find_hid(self) -> None:
         """Refresh HID handles; device nodes change after a reconnect or resume."""
         self.keyboard = next(iter(LampArrayDevice.discover(self.root)), None)
         self.vendor = VendorKeyboard.discover(self.root)
         self.logo = CoverLogo.discover(self.root)
 
     @property
-    def features(self):
+    def features(self) -> set[str]:
         features = set(self.static_features)
         if self.keyboard:
             features.update(('per_zone_mode', 'per_key_mode'))
@@ -103,21 +105,21 @@ class NativeControls:
             features.add('usb_logo')
         return features
 
-    def _write(self, path, value):
+    def _write(self, path: str | Path, value: object) -> None:
         Path(path).write_text(str(value))
 
-    def _save(self):
+    def _save(self) -> None:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_file.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.lighting))
         os.replace(tmp, self.state_file)
 
-    def ac_online(self):
+    def ac_online(self) -> bool | None:
         supplies = list((self.root / 'class/power_supply').glob('*'))
         mains = [p for p in supplies if read(p / 'type') in ('Mains', 'USB', 'USB_C') and (p / 'online').exists()]
         return any(read(p / 'online') == '1' for p in mains) if mains else None
 
-    def settings(self):
+    def settings(self) -> JsonDict:
         with self.lock:
             profile = read(self.profile_dir / 'profile') if self.profile_dir else ''
             choices = read(self.profile_dir / 'choices').split() if self.profile_dir else []
@@ -142,7 +144,7 @@ class NativeControls:
                 out['battery_limiter'] = '1' if int(read(self.threshold, '100')) <= 80 else '0'
             return out
 
-    def set_profile(self, profile):
+    def set_profile(self, profile: object) -> str:
         if not self.profile_dir or profile not in read(self.profile_dir / 'choices').split():
             raise ValueError('Unsupported performance profile')
         # Firmware owns AC restrictions. Read its accepted state after writing.
@@ -152,7 +154,7 @@ class NativeControls:
             raise RuntimeError(f'Firmware selected {actual!r} instead of {profile!r}')
         return actual
 
-    def auto_fans(self):
+    def auto_fans(self) -> None:
         """Hand both fans back to firmware control; each fan is attempted even if the other fails."""
         if not self.hwmon:
             return
@@ -160,7 +162,7 @@ class NativeControls:
             with contextlib.suppress(OSError):
                 self._write(self.hwmon / f'pwm{i}_enable', 2)
 
-    def set_fans(self, cpu, gpu):
+    def set_fans(self, cpu: object, gpu: object) -> None:
         if 'fan_speed' not in self.features:
             raise ValueError('Stock Acer fan control unavailable')
         speeds = [integer(cpu, 0, 100), integer(gpu, 0, 100)]
@@ -177,7 +179,7 @@ class NativeControls:
             self.auto_fans()
             raise
 
-    def _apply_keyboard(self, mode, rgb, speed, brightness, direction):
+    def _apply_keyboard(self, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int) -> None:
         if mode == 0 and self.keyboard:
             with self.keyboard as kb:
                 kb.fill(_scale_rgb(rgb, brightness))
@@ -189,13 +191,13 @@ class NativeControls:
         else:
             raise ValueError('Native effects unavailable; static color is supported')
 
-    def _apply_zones(self, colors):
+    def _apply_zones(self, colors: list[Rgb]) -> None:
         with self.keyboard as kb:
             kb.multi({lamp['id']: colors[min(lamp['x'] * 4 // max(kb.w, 1), 3)] for lamp in kb.lamps()})
         if self.vendor:
             self.vendor.effect(0, colors[0], 5, 100, mag=True)
 
-    def _apply_per_key(self, mapping, brightness):
+    def _apply_per_key(self, mapping: dict[int, Rgb], brightness: int) -> list[Lamp]:
         """Send a full static layout and return the lamp list it was validated against."""
         with self.keyboard as kb:
             lamps = kb.lamps()
@@ -204,7 +206,7 @@ class NativeControls:
             kb.multi({key: _scale_rgb(rgb, brightness) for key, rgb in mapping.items()})
         return lamps
 
-    def _apply_device(self, target, mode, rgb, speed, brightness, direction):
+    def _apply_device(self, target: str, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int) -> None:
         if target == 'wasd':
             self.vendor.effect(mode, rgb, speed, brightness, direction, mag=True)
         elif target == 'logo':
@@ -212,7 +214,7 @@ class NativeControls:
         elif target == 'lightbar':
             self._set_bar(mode, rgb, speed, brightness, direction)
 
-    def set_zones(self, p):
+    def set_zones(self, p: JsonDict) -> None:
         if not self.keyboard:
             raise ValueError('Per-lamp keyboard unavailable')
         colors = [color(p[f'zone{i}']) for i in range(1, 5)]
@@ -223,12 +225,12 @@ class NativeControls:
                                      'speed': 5, 'direction': 1}
         self._save()
 
-    def _set_bar(self, mode, rgb, speed, brightness, direction):
+    def _set_bar(self, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int) -> None:
         effect = self.bar_bridge.with_name('effect')
         if not effect.exists():
             self._write(self.bar_bridge, ' '.join(map(str, (*rgb, brightness))))
             return
-        def apply(native_mode):
+        def apply(native_mode: int) -> None:
             self._write(effect, ' '.join(map(str,
                 (native_mode, 1 + (speed - 1)//2, brightness, direction, *rgb))))
         # PH16-72 Static retains the previous RGB. Hardware testing confirmed
@@ -238,7 +240,7 @@ class NativeControls:
             time.sleep(0.2)
         apply(mode)
 
-    def lighting_modes(self):
+    def lighting_modes(self) -> dict[str, list[int]]:
         modes = {}
         if self.keyboard or self.vendor:
             modes['keyboard'] = list(VendorKeyboard.EFFECTS) if self.vendor else [0]
@@ -252,13 +254,13 @@ class NativeControls:
             modes['all'] = sorted(set.intersection(*(set(values) for values in modes.values())))
         return modes
 
-    def keyboard_layout(self):
+    def keyboard_layout(self) -> JsonDict:
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
         with self.keyboard as kb:
             return {'width': kb.w, 'height': kb.h, 'lamps': kb.lamps()}
 
-    def set_per_key(self, p):
+    def set_per_key(self, p: JsonDict) -> None:
         brightness = integer(p.get('brightness', 100), 0, 100)
         colors = p.get('colors')
         if not isinstance(colors, dict) or not 1 <= len(colors) <= 4096:
@@ -283,7 +285,7 @@ class NativeControls:
                                      'colors': {str(key): bytes(mapping[key]).hex() for key in wasd}}
         self._save()
 
-    def set_global_lighting(self, p):
+    def set_global_lighting(self, p: JsonDict) -> None:
         mode = integer(p.get('mode', 0), 0, 9)
         if mode not in self.lighting_modes().get('all', []):
             raise ValueError('Choose an effect supported by every lighting device')
@@ -300,7 +302,7 @@ class NativeControls:
         self.lighting['all'] = dict(self.lighting[applied[-1]])
         self._save()
 
-    def set_lighting(self, p):
+    def set_lighting(self, p: JsonDict) -> None:
         target = p.get('target')
         mode, rgb, speed, brightness, direction = params = effect_params(p)
         if mode not in self.lighting_modes().get(target, []):
@@ -323,7 +325,7 @@ class NativeControls:
             self.lighting[target]['link_wasd'] = link_wasd
         self._save()
 
-    def restore_lighting(self):
+    def restore_lighting(self) -> None:
         """Replay saved lighting after start, resume, or a HID reconnect.
         Saved state is left unchanged: it records what was applied, not what the replay achieved.
         """
@@ -336,7 +338,7 @@ class NativeControls:
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError) as error:
                     log.warning('Could not restore %s lighting: %s', target, error)
 
-    def _restore(self, target, saved):
+    def _restore(self, target: str, saved: JsonDict) -> None:
         # A WASD entry recorded by a per-key layout has no mode; the keyboard layout already covers it.
         if target == 'keyboard' and saved.get('kind') == 'zones' and self.keyboard:
             self._apply_zones([color(c) for c in saved['colors']])
@@ -350,7 +352,7 @@ class NativeControls:
             else:
                 self._apply_device(target, *effect_params(saved))
 
-    def command(self, name, p):
+    def command(self, name: str, p: JsonDict) -> JsonDict:
         with self.lock:
             if name == 'ping':
                 return {'version': VERSION}

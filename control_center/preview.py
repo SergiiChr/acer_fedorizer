@@ -2,8 +2,10 @@
 """Explicit deterministic preview data. Never connects to hardware or session D-Bus."""
 import copy
 
+from .client import JsonDict
 
-def layout():
+
+def layout() -> JsonDict:
     # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.
     import json
     from pathlib import Path
@@ -19,8 +21,8 @@ STATE={'version': '0.8.0','driver_version': 'Stock acer_wmi + USB HID','laptop_t
 
 
 class PreviewClient:
-    def __init__(self): self.state=copy.deepcopy(STATE); self.commands=[]
-    def command(self, command, params=None):
+    def __init__(self) -> None: self.state=copy.deepcopy(STATE); self.commands=[]
+    def command(self, command: str, params: JsonDict | None = None) -> JsonDict:
         params=params or {}
         self.commands.append((command,copy.deepcopy(params)))
         if command=='get_keyboard_layout': return layout()
@@ -31,17 +33,17 @@ class PreviewClient:
         elif command=='set_fan_speed': self.state['fan_speed']={k:str(params[k]) for k in ('cpu','gpu')}
         elif command.startswith('set_') and 'enabled' in params: self.state[command[4:]]='1' if params['enabled'] else '0'
         return copy.deepcopy(self.state)
-    def close(self): pass
+    def close(self) -> None: pass
 
 
-def sample(gpu=False):
+def sample(gpu: bool = False) -> JsonDict:
     return {'cpu_usage': 18.4,'cpu_temperature': 54,'memory_used': 9.8,'memory_total': 31.1,
                 'cores': [2.1,2.3,2.2,2.5,2.1,2.4,2.2,2.3]+[1.3+(i%4)/10 for i in range(16)],
                 'gpu': {'temperature': 42,'usage': 3,'memory_used': 486,'memory_total': 12282,'power': 5.2,'core': 210,'memory_clock': 405} if gpu else None,
                 'battery': {'capacity': 78,'status': 'Charging','health': 97,'hours': 0.72,'cycles': 126,'manufacturer': 'SMP','model': 'AP21D8M'}}
 
 
-def installation_status():
+def installation_status() -> JsonDict:
     from .installation import CHECKS
     return {'model': 'Predator PH16-72','kernel': '7.2.11-200.fc44.x86_64','installed': True,'healthy': True,
                 'checks': [{'key': key,'title': title,'ok': True,

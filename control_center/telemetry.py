@@ -5,6 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .client import JsonDict
+
 # Newer drivers report average and instant power; older ones only power.draw.
 GPU_QUERIES = (
     ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw.average,power.draw.instant,'
@@ -15,14 +17,14 @@ GPU_QUERIES = (
 MAX_SAMPLE_GAP = 5.0
 
 
-def text(path, default=''):
+def text(path: str | Path, default: str = '') -> str:
     try:
         return Path(path).read_text().strip()
     except OSError:
         return default
 
 
-def number(value):
+def number(value: object) -> float | None:
     try:
         value = float(value)
         return value if math.isfinite(value) and value >= 0 else None
@@ -30,7 +32,7 @@ def number(value):
         return None
 
 
-def gpu_fields(output):
+def gpu_fields(output: str) -> dict[str, float | None]:
     values = output.strip().splitlines()[0].split(',') if output.strip() else []
     if len(values) != 9:
         raise ValueError('Incomplete GPU sample')
@@ -42,13 +44,13 @@ def gpu_fields(output):
 
 
 class Telemetry:
-    def __init__(self, sys_root='/sys', proc_root='/proc'):
+    def __init__(self, sys_root: str | Path = '/sys', proc_root: str | Path = '/proc') -> None:
         self.sys = Path(sys_root)
         self.proc = Path(proc_root)
         self.previous = None
         self.gpu_queries = GPU_QUERIES
 
-    def sample(self, gpu=False):
+    def sample(self, gpu: bool = False) -> JsonDict:
         result = {'cpu_usage': None, 'cpu_temperature': None, 'memory_used': None,
                       'memory_total': None, 'cores': [], 'gpu': None, 'battery': {}}
         try:
@@ -85,7 +87,7 @@ class Telemetry:
             result['gpu']=self.gpu()
         return result
 
-    def gpu(self):
+    def gpu(self) -> dict[str, float | None] | None:
         try:
             for query in self.gpu_queries:
                 process=subprocess.run(['nvidia-smi','--query-gpu='+query,'--format=csv,noheader,nounits'],
@@ -97,7 +99,7 @@ class Telemetry:
             pass
         return None
 
-    def battery(self):
+    def battery(self) -> dict[str, float | str | None]:
         for battery in self.sys.glob('class/power_supply/*'):
             if text(battery/'type') != 'Battery': continue
             status=text(battery/'status','Unknown')

@@ -7,19 +7,19 @@ from pathlib import Path
 from control_center.markdown_view import blocks, inline_markup
 
 
-def markup_text(markup):
+def markup_text(markup: str) -> str:
     return ''.join(ET.fromstring('<root>'+markup+'</root>').itertext())
 
 
 class MarkdownTests(unittest.TestCase):
-    def test_wrapped_lists_headings_and_table_structure(self):
+    def test_wrapped_lists_headings_and_table_structure(self) -> None:
         source='# Title\n\nA wrapped\nparagraph.\n\n- **Author**\n  attribution.\n\n## Libraries\n\n| Name | Terms |\n| --- | --- |\n| GTK | LGPL |\n'
         self.assertEqual(list(blocks(source)),[
             ('heading',1,'Title'),('paragraph','A wrapped paragraph.'),
             ('bullet','**Author** attribution.'),('heading',2,'Libraries'),
             ('table',[['Name','Terms'],['GTK','LGPL']])])
 
-    def test_inline_formatting_links_escaping_and_url_punctuation(self):
+    def test_inline_formatting_links_escaping_and_url_punctuation(self) -> None:
         source='**A & B** uses `x < y` and *emphasis*. [Terms](https://example.com/?a=1&b=2). https://example.org/path.'
         markup=inline_markup(source)
         root=ET.fromstring('<root>'+markup+'</root>')
@@ -29,7 +29,7 @@ class MarkdownTests(unittest.TestCase):
         self.assertIn('<b>A &amp; B</b>',markup)
         self.assertIn('<tt>x &lt; y</tt>',markup)
 
-    def test_source_markup_and_non_web_links_cannot_become_active(self):
+    def test_source_markup_and_non_web_links_cannot_become_active(self) -> None:
         markup=inline_markup('<b>raw</b> [unsafe](javascript:alert) [local](file:///etc/passwd) `https://code.example`')
         root=ET.fromstring('<root>'+markup+'</root>')
         self.assertEqual(root.findall('a'),[])
@@ -37,7 +37,7 @@ class MarkdownTests(unittest.TestCase):
         self.assertNotIn('<b>',markup)
         self.assertEqual(markup_text(inline_markup('https://[broken')), 'https://[broken')
 
-    def test_real_notice_renders_all_blocks_from_single_source(self):
+    def test_real_notice_renders_all_blocks_from_single_source(self) -> None:
         source=(Path(__file__).resolve().parents[1]/'NOTICE.md').read_text()
         rendered=[]; tables=0
         source_bullets=sum(bool(re.match(r'^[-*]\s+\S',line)) for line in source.splitlines())

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import math
+from collections.abc import Callable, Sequence
 
+import cairo
 import gi
 
 gi.require_version('Gtk','4.0')
@@ -9,7 +11,7 @@ from gi.repository import Gdk, Gtk, Pango, PangoCairo
 from .keyboard import keycaps
 
 
-def label(text='', css=None, xalign=0):
+def label(text: str = '', css: str | None = None, xalign: float = 0) -> Gtk.Label:
     widget=Gtk.Label(label=text,xalign=xalign,wrap=True)
     if css: widget.add_css_class(css)
     if css in ('preview-badge','status-pill'):
@@ -17,23 +19,23 @@ def label(text='', css=None, xalign=0):
     return widget
 
 
-def box(spacing=12, horizontal=False):
+def box(spacing: int = 12, horizontal: bool = False) -> Gtk.Box:
     return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL if horizontal else Gtk.Orientation.VERTICAL,spacing=spacing)
 
 
-def color_rgba(hex_value):
+def color_rgba(hex_value: str) -> Gdk.RGBA:
     rgba=Gdk.RGBA()
     rgba.parse('#'+hex_value.lstrip('#'))
     return rgba
 
 
-def hex_rgba(rgba):
+def hex_rgba(rgba: Gdk.RGBA) -> str:
     return ''.join(f'{round(max(0,min(1,v))*255):02x}' for v in (rgba.red,rgba.green,rgba.blue))
 
 
 class ModeTiles(Gtk.FlowBox):
     """Single-selection icon tiles; selections remain drafts until explicitly applied."""
-    def __init__(self, choices=(), changed=None):
+    def __init__(self, choices: Sequence[tuple[str, str]] = (), changed: Callable[[], None] | None = None) -> None:
         super().__init__(selection_mode=Gtk.SelectionMode.NONE,homogeneous=True,
                          min_children_per_line=1,max_children_per_line=5,
                          row_spacing=10,column_spacing=10)
@@ -41,7 +43,7 @@ class ModeTiles(Gtk.FlowBox):
         self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
         self.set_choices(choices)
 
-    def set_choices(self, choices):
+    def set_choices(self, choices: Sequence[tuple[str, str]]) -> None:
         while self.get_first_child(): self.remove(self.get_first_child())
         self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION
         for index,(title,icon) in enumerate(choices):
@@ -65,30 +67,30 @@ class ModeTiles(Gtk.FlowBox):
             self.buttons.append(tile); self.append(tile)
         if self.buttons: self.set_selected(0)
 
-    def choose(self, index):
+    def choose(self, index: int) -> None:
         self.set_selected(index)
         if self.changed: self.changed()
 
-    def set_selected(self, index):
+    def set_selected(self, index: int) -> None:
         self.selected=index if 0<=index<len(self.buttons) else Gtk.INVALID_LIST_POSITION
         for i,tile in enumerate(self.buttons):
             tile.set_active(i==self.selected)
             self.checks[i].set_opacity(1 if i==self.selected else 0)
 
-    def get_selected(self):
+    def get_selected(self) -> int:
         return self.selected
 
 
 class HistoryChart(Gtk.DrawingArea):
-    def __init__(self, color=(.36,.75,.74), height=90):
+    def __init__(self, color: tuple[float, float, float] = (.36,.75,.74), height: int = 90) -> None:
         super().__init__(content_height=height,hexpand=True)
         self.values=[]
         self.color=color
         self.set_draw_func(self.draw)
-    def sample(self, value):
+    def sample(self, value: float | None) -> None:
         self.values=[*self.values,value][-60:]
         self.queue_draw()
-    def draw(self, _, cr, width, height):
+    def draw(self, _: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
         cr.set_source_rgba(.55,.6,.65,.12)
         cr.set_line_width(1)
         for y in (height*.25,height*.5,height*.75):
@@ -108,7 +110,7 @@ class HistoryChart(Gtk.DrawingArea):
             for point in segment[1:]: cr.line_to(*point)
             cr.set_source_rgba(*self.color,.95); cr.set_line_width(2); cr.stroke()
     @staticmethod
-    def segments(points):
+    def segments(points: list[tuple[float, float] | None]) -> list[list[tuple[float, float]]]:
         result=[]; segment=[]
         for point in points:
             if point is None:
@@ -127,7 +129,7 @@ USAGES.update({58+i:'F'+str(i+1) for i in range(12)})
 
 
 class KeyboardCanvas(Gtk.DrawingArea):
-    def __init__(self, height=220, selectable=False):
+    def __init__(self, height: int = 220, selectable: bool = False) -> None:
         super().__init__(content_height=height,hexpand=True)
         self.lamps=[]; self.caps=[]; self.colors={}; self.selected=set(); self.rects=[]; self.on_selection=None
         self.set_draw_func(self.draw)
@@ -136,13 +138,13 @@ class KeyboardCanvas(Gtk.DrawingArea):
             click.connect('pressed',self.clicked)
             self.add_controller(click)
             self.set_tooltip_text('Click keys to select them. LED geometry comes from the keyboard.')
-    def set_layout(self, lamps, colors=None):
+    def set_layout(self, lamps: list[dict[str, object]], colors: dict[str, str] | None = None) -> None:
         self.lamps=lamps
         # Keycap geometry depends only on the lamps, so it is computed once rather than on every redraw.
         self.caps=keycaps(lamps)
         self.colors=colors or {}
         self.queue_draw()
-    def draw(self, _, cr, width, height):
+    def draw(self, _: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
         self.rects=[]
         if not self.caps:
             cr.set_source_rgba(.6,.65,.7,.8); cr.set_font_size(13)
@@ -178,12 +180,12 @@ class KeyboardCanvas(Gtk.DrawingArea):
             cr.set_source_rgba(.88,.93,.94,.95)
             cr.move_to(x+(w-tw)/2,y+(h-th)/2); PangoCairo.show_layout(cr,layout)
     @staticmethod
-    def rounded(cr,x,y,w,h,r):
+    def rounded(cr: cairo.Context, x: float, y: float, w: float, h: float, r: float) -> None:
         cr.new_sub_path()
         for cx,cy,a,b in ((x+w-r,y+r,-90,0),(x+w-r,y+h-r,0,90),(x+r,y+h-r,90,180),(x+r,y+r,180,270)):
             cr.arc(cx,cy,r,math.radians(a),math.radians(b))
         cr.close_path()
-    def clicked(self, _, count, x, y):
+    def clicked(self, _: Gtk.GestureClick, count: int, x: float, y: float) -> None:
         for left,top,width,height,lid in self.rects:
             if left<=x<=left+width and top<=y<=top+height:
                 self.selected.symmetric_difference_update({lid})

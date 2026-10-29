@@ -7,10 +7,10 @@ import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import GLib, Gtk
 
-from .app import PAGES
+from .app import PAGES, Application
 
 
-def save_window(window,path):
+def save_window(window: Gtk.Window, path: str | Path) -> None:
     paintable=Gtk.WidgetPaintable.new(window)
     snapshot=Gtk.Snapshot()
     paintable.snapshot(snapshot,window.get_width(),window.get_height())
@@ -20,7 +20,7 @@ def save_window(window,path):
     if not texture.save_to_png(str(path)): raise RuntimeError('Unable to save screenshot')
 
 
-def invalidate(widget):
+def invalidate(widget: Gtk.Widget) -> None:
     # Rebuild cached text/child nodes before offscreen rendering each page.
     widget.queue_draw()
     child=widget.get_first_child()
@@ -29,11 +29,11 @@ def invalidate(widget):
         child=child.get_next_sibling()
 
 
-def capture_pages(app,directory):
+def capture_pages(app: Application, directory: str | Path) -> bool:
     directory=Path(directory).resolve()
     directory.mkdir(parents=True,exist_ok=True)
     names=[key for key,*_ in PAGES]+['keyboard','credits']
-    def next_page(index=0):
+    def next_page(index: int = 0) -> bool:
         if index>=len(names):
             app.window.close(); app.quit(); return False
         name=names[index]
@@ -43,7 +43,7 @@ def capture_pages(app,directory):
         else: app.window.nav.select_row(app.window.nav_rows[name])
         target=app.window.editor if name=='keyboard' else app.window.credits_window if name=='credits' else app.window
         invalidate(target)
-        def capture():
+        def capture() -> bool:
             try:
                 save_window(target,directory/(name+'.png'))
                 print(directory/(name+'.png'),flush=True)

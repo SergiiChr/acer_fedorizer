@@ -12,7 +12,7 @@ import re
 import struct
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Self, TypedDict
 
 OPEN_FLAGS = os.O_RDWR | os.O_CLOEXEC
 _IOC_NRBITS = 8
@@ -24,9 +24,19 @@ _IOC_SIZESHIFT = _IOC_TYPESHIFT + _IOC_TYPEBITS
 _IOC_DIRSHIFT = _IOC_SIZESHIFT + _IOC_SIZEBITS
 _IOC_WRITE = 1
 _IOC_READ = 2
+Rgb = tuple[int, ...]
 
 
-def _IOC(direction, type_, nr, size):
+class Lamp(TypedDict):
+    id: int
+    x: int
+    y: int
+    z: int
+    programmable: bool
+    key_usage: int
+
+
+def _IOC(direction: int, type_: str, nr: int, size: int) -> int:
     return (
         (direction << _IOC_DIRSHIFT)
         | (ord(type_) << _IOC_TYPESHIFT)
@@ -35,16 +45,16 @@ def _IOC(direction, type_, nr, size):
     )
 
 
-def HIDIOCSFEATURE(length):
+def HIDIOCSFEATURE(length: int) -> int:
     # linux/hidraw.h: _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len)
     return _IOC(_IOC_WRITE | _IOC_READ, 'H', 0x06, length)
 
 
-def HIDIOCGFEATURE(length):
+def HIDIOCGFEATURE(length: int) -> int:
     # linux/hidraw.h: _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x07, len)
     return _IOC(_IOC_WRITE | _IOC_READ, 'H', 0x07, length)
 
-def _scale_rgb(rgb, pct):
+def _scale_rgb(rgb: Rgb, pct: int) -> Rgb:
     """Scale an (r,g,b) tuple by a brightness percentage (0-100)."""
     pct = max(0, min(100, pct))
     return tuple(min(255, round(c * pct / 100)) for c in rgb)
@@ -68,7 +78,7 @@ class LampArrayDevice:
     LAMP_ID = 0x21
     FLAG_COMPLETE = 0x01
 
-    def __init__(self, path, vid, pid, name, reports, slots):
+    def __init__(self, path: str, vid: int, pid: int, name: str, reports: dict[int, int | None], slots: int) -> None:
         self.path, self.vid, self.pid, self.name = path, vid, pid, name
         self.reports, self.slots = reports, slots
         self.fd = None
@@ -76,7 +86,7 @@ class LampArrayDevice:
         self._lamps = None
 
     @staticmethod
-    def _parse_descriptor(desc):
+    def _parse_descriptor(desc: bytes) -> tuple[dict[int, int | None], int | None]:
         """Return ({report_usage: report_id}, multi_update_slots) for a LampArray."""
         i, page, usages, rid, rcount = 0, None, [], None, None
         stack, cur, reports, slots = [], None, {}, None
@@ -114,7 +124,8 @@ class LampArrayDevice:
         return reports, slots
 
     @classmethod
-    def discover(cls, sys_root="/sys", vendor_filter=(0x05AF, 0x04F2)):
+    def discover(cls, sys_root: str | Path = "/sys",
+                 vendor_filter: tuple[int, ...] | None = (0x05AF, 0x04F2)) -> list[Self]:
         """Find internal LampArray keyboards. vendor_filter=None matches any vendor."""
         out = []
         for h in sorted(Path(sys_root, "class/hidraw").glob("hidraw*")):
@@ -140,7 +151,7 @@ class LampArrayDevice:
                            nm.group(1).strip() if nm else "?", reports, slots or 8))
         return out
 
-    def open(self):
+    def open(self) -> Self:
         self.fd = os.open(self.path, OPEN_FLAGS)
         try:
             attrs = self._get(self.reports[self.ATTRS], 23)
@@ -155,15 +166,15 @@ class LampArrayDevice:
             raise ValueError("Invalid LampArray lamp count")
         return self
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self.open()
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         if self.fd is not None:
             os.close(self.fd)
             self.fd = None
 
-    def _get(self, rid, n):
+    def _get(self, rid: int, n: int) -> bytes:
         buf = bytearray(n); buf[0] = rid
         for _ in range(7):
             with contextlib.suppress(OSError):
@@ -174,21 +185,21 @@ class LampArrayDevice:
         fcntl.ioctl(self.fd, HIDIOCGFEATURE(n), buf, True)
         return bytes(buf)
 
-    def _set(self, data):
+    def _set(self, data: bytes) -> None:
         buf = bytearray(data)
         fcntl.ioctl(self.fd, HIDIOCSFEATURE(len(buf)), buf, True)
 
-    def autonomous(self, on):
+    def autonomous(self, on: bool) -> None:
         """True -> firmware runs its own effects; False -> host controls colours."""
         self._set(bytes([self.reports[self.CONTROL], 1 if on else 0]))
 
-    def fill(self, rgb):
+    def fill(self, rgb: Rgb) -> None:
         """Set every lamp to one colour via a single LampRangeUpdate."""
         self.autonomous(False)
         self._set(bytes([self.reports[self.RANGE], self.FLAG_COMPLETE])
                   + struct.pack("<HH", 0, max(self.count - 1, 0)) + bytes(rgb) + b"\xff")
 
-    def lamps(self):
+    def lamps(self) -> list[Lamp]:
         """Read HID lamp geometry and keyboard usage bindings, not a guessed key map."""
         if self._lamps is None:
             out = []
@@ -204,7 +215,7 @@ class LampArrayDevice:
             self._lamps = out
         return self._lamps
 
-    def multi(self, mapping):
+    def multi(self, mapping: dict[int, Rgb]) -> None:
         """Set arbitrary per-lamp colours ({lamp_id: (r,g,b)}) via LampMultiUpdate."""
         self.autonomous(False)
         items = sorted(mapping.items())
@@ -221,14 +232,14 @@ class LampArrayDevice:
 
 
 
-def frame(op, *params):
+def frame(op: int, *params: int) -> bytes:
     if len(params) > 6 or not all(isinstance(v, int) and 0 <= v <= 255 for v in (op, *params)):
         raise ValueError("Invalid Acer HID command")
     body = bytes([op, *params]) + bytes(6 - len(params))
     return bytes([0]) + body + bytes([(~sum(body)) & 255])
 
 
-def send_feature(fd, data):
+def send_feature(fd: int, data: bytes) -> None:
     fcntl.ioctl(fd, HIDIOCSFEATURE(len(data)), bytearray(data), True)
     time.sleep(0.015)
 
@@ -239,11 +250,11 @@ class VendorKeyboard:
     EFFECTS: ClassVar[dict[int, int]] = {0: 0x01, 1: 0x02, 2: 0x08, 3: 0x03, 4: 0x12,
                5: 0x29, 6: 0x2A, 7: 0x05, 8: 0x06, 9: 0x0A}
 
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         self.path = path
 
     @classmethod
-    def discover(cls, sys_root='/sys'):
+    def discover(cls, sys_root: str | Path = '/sys') -> Self | None:
         for h in sorted(Path(sys_root, 'class/hidraw').glob('hidraw*')):
             try:
                 u = (h / 'device/uevent').read_text()
@@ -257,7 +268,7 @@ class VendorKeyboard:
 
     MAG_EFFECTS: ClassVar[dict[int, int]] = {0: 0x41, 1: 0x42, 2: 0x45, 3: 0x43, 7: 0x44}
 
-    def effect(self, mode, rgb, speed, brightness, direction=1, mag=False):
+    def effect(self, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int = 1, mag: bool = False) -> None:
         table = self.MAG_EFFECTS if mag else self.EFFECTS
         if mode not in table:
             raise ValueError('Unsupported native keyboard effect')
@@ -278,11 +289,11 @@ class VendorKeyboard:
 
 class CoverLogo:
     EFFECTS: ClassVar[dict[int, int]] = {0: 1, 1: 2, 2: 8, 9: 10}
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         self.path = path
 
     @classmethod
-    def discover(cls, sys_root='/sys'):
+    def discover(cls, sys_root: str | Path = '/sys') -> Self | None:
         for h in sorted(Path(sys_root, 'class/hidraw').glob('hidraw*')):
             try:
                 u = (h / 'device/uevent').read_text()
@@ -292,10 +303,10 @@ class CoverLogo:
                 return cls('/dev/' + h.name)
         return None
 
-    def color(self, rgb, brightness):
+    def color(self, rgb: Rgb, brightness: int) -> None:
         self.effect(0, rgb, 5, brightness)
 
-    def effect(self, mode, rgb, speed, brightness, direction=1):
+    def effect(self, mode: int, rgb: Rgb, speed: int, brightness: int, direction: int = 1) -> None:
         if mode not in self.EFFECTS:
             raise ValueError('Unsupported logo effect')
         fd = os.open(self.path, OPEN_FLAGS)

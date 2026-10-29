@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Keycap geometry from HID LED centers; never changes lamp identities/bindings."""
+from collections.abc import Mapping, Sequence
 from statistics import median
 
+# Lamp record, x0, y0, width, height.
+Keycap = tuple[Mapping[str, int], float, float, float, float]
 
-def keycaps(lamps):
+
+def keycaps(lamps: Sequence[Mapping[str, int]]) -> list[Keycap]:
     if not lamps:
         return []
     # Letter/digit spacing is stable even when LED positions have tiny offsets.

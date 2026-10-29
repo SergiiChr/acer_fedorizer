@@ -5,19 +5,21 @@ import os
 import socket
 import threading
 
+JsonDict = dict[str, object]
+
 # Safe to repeat: they never change hardware state.
 READ_COMMANDS = frozenset({'ping', 'get_all_settings', 'get_keyboard_layout'})
 
 
 class ControlClient:
-    def __init__(self, path=None, timeout=5):
+    def __init__(self, path: str | None = None, timeout: float = 5) -> None:
         self.path = path or os.environ.get('FEDORIZER_SOCKET', '/run/acer-fedorizer.sock')
         self.timeout = timeout
-        self._socket = None
+        self._socket: socket.socket | None = None
         self._lock = threading.Lock()
         self._closed = False
 
-    def command(self, command, params=None):
+    def command(self, command: str, params: JsonDict | None = None) -> JsonDict:
         payload = json.dumps({'command': command, 'params': params or {}}).encode() + b'\n'
         if len(payload) > 65536:
             raise ValueError('Request exceeds framing limit')
@@ -34,7 +36,7 @@ class ControlClient:
                     raise
             return self._exchange(payload)
 
-    def _exchange(self, payload):
+    def _exchange(self, payload: bytes) -> JsonDict:
         try:
             if self._socket is None:
                 self._socket = socket.socket(socket.AF_UNIX)
@@ -64,12 +66,12 @@ class ControlClient:
             self._disconnect()
             raise
 
-    def _disconnect(self):
+    def _disconnect(self) -> None:
         if self._socket is not None:
             self._socket.close()
             self._socket = None
 
-    def close(self):
+    def close(self) -> None:
         with self._lock:
             self._closed = True
             self._disconnect()
