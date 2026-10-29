@@ -22,8 +22,8 @@ Product and hardware rules are in [AGENTS.md](AGENTS.md).
 
 ## Python
 
-- Code passes `ruff check .` with the repository `ruff.toml`; its `ANN` rules require type hints on every function.
-- Use precise types, not `typing.Any`, casts, or `# type: ignore`; ruff checks that hints exist, not that they are correct.
+- Strict typing, enforced by `mypy --strict`; avoid `typing.Any`, casts, and `# type: ignore`.
+- Style is enforced by `ruff check .`.
 - Match the surrounding file's style; most modules use compact spacing.
 - Prefer clear names and reuse of existing helpers over new ones.
 - No hardware access at import time.

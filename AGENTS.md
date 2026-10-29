@@ -76,8 +76,8 @@ Preview never contacts the hardware service or Mutter.
 scripts/check.sh
 ```
 
-It runs shell syntax checks, `ruff check .`, unit tests, the GTK smoke test, preview screenshots, and packaging.
-Set `RUFF` when ruff is not on `PATH`, for example `RUFF='pipx run ruff==0.16.9'`.
+It runs shell syntax checks, ruff, mypy, unit tests, the GTK smoke test, preview screenshots, and packaging.
+Run `scripts/check-tools.sh` once to install the pinned ruff and mypy into `.venv`; it is a development setup step, not part of tests.
 Screenshots go to `publish/screenshots` so local runs leave tracked files alone; set `SCREENSHOTS=docs/screenshots` to update the README images, as CI does before packaging.
 
 GUI checks need GTK 4.10+, libadwaita 1.4+, PyGObject/Pycairo, and a display; CI uses Xvfb and a private D-Bus session.
