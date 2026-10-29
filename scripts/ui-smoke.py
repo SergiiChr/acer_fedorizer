@@ -24,7 +24,7 @@ client=services.client
 app=Application(services)
 failures: list[str]=[]
 
-def when(ready: Callable[[], bool], verify: Callable[[], bool], timeout: float = 5) -> None:
+def when(ready: Callable[[], bool], verify: Callable[[], object], timeout: float = 5) -> None:
     """Run verify once ready() is true or the timeout passes, so slow async applies do not fail at random."""
     deadline=time.monotonic()+timeout
     def poll() -> bool:
@@ -47,9 +47,12 @@ def open_editor() -> KeyEditor:
     assert app.window.editor,'Per-key editor did not open'
     return app.window.editor
 
+def fail(message: str) -> None:
+    failures.append(message); print('FAIL:',message,file=sys.stderr,flush=True)
+    app.window.close(); app.quit()
+
 def start() -> bool:
-    # The first settings reply starts loading the keyboard layout.
-    when(lambda:app.window.layout is not None,checks)
+    when(lambda:app.window.connected,lambda:app.window.ensure_layout(lambda _:checks(),lambda error:fail('Keyboard layout did not load: '+error)))
     return False
 
 def checks() -> bool:
@@ -221,7 +224,39 @@ def verify_zones() -> bool:
         refresh_state()
         window.drafts.clear(); window.load_draft()
         assert window.effect_ids[window.effect_combo.get_selected()]==ZONE_MODE,'Saved zones not loaded'
-        print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, and no startup writes',flush=True)
+        check_external_per_key()
+        return False
+    except Exception as error:
+        failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
+    app.window.close(); app.quit()
+    return False
+
+
+def check_external_per_key() -> None:
+    window=app.window
+    first=str(layout()[0].id)
+    client.lighting['per_key']={'colors':{first:'abcdef'},'brightness':20}
+    refresh_state()
+    assert window.keyboard_canvas.colors[first]=='abcdef','Lighting preview ignored saved per-key colors'
+    # A failed layout load reaches every waiting caller instead of leaving it waiting.
+    loaded=window.layout; window.layout=None
+    answer=client.answer
+    def broken(command: str, params: dict[str, JSON]) -> JSON:
+        if command=='get_keyboard_layout': raise OSError('keyboard unplugged')
+        return answer(command,params)
+    errors: list[str]=[]
+    # The load runs on a worker, so the patch stays until verify_layout_failure removes it.
+    patch.object(client,'answer',side_effect=broken).start()
+    window.ensure_layout(lambda _:errors.append('loaded'),errors.append)
+    when(lambda:bool(errors),lambda:verify_layout_failure(errors,loaded))
+
+
+def verify_layout_failure(errors: list[str], loaded: list[Lamp] | None) -> bool:
+    try:
+        patch.stopall()
+        app.window.layout=loaded
+        assert errors==['keyboard unplugged'],'Layout failure was not reported: '+repr(errors)
+        print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, external per-key colors, layout load failure, and no startup writes',flush=True)
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()

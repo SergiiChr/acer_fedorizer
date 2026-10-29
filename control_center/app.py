@@ -89,7 +89,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.state: Settings | None=None; self.connected=False; self.updating=False
         self.drafts: dict[str, LightingDraft]={}; self.current_target: str | None=None
         self.lighting_loading=False; self.layout: list[Lamp] | None=None
-        self.layout_loading=False; self.layout_waiters: list[Callable[[list[Lamp]], object]]=[]
+        self.layout_loading=False
+        self.layout_waiters: list[tuple[Callable[[list[Lamp]], object], Callable[[str], object]]]=[]
         self.gpu_enabled=False; self.status_pending=False; self.editor: KeyEditor | None=None
         self.fan_draft_loaded=False; self.display_watched=False
         self.workers=Workers()
@@ -526,6 +527,9 @@ class MainWindow(Adw.ApplicationWindow):
             self.system_labels['version'].set_text(state.version)
             self.system_labels['socket'].set_text('Preview' if self.services.preview else 'Connected · local Unix socket')
             self.capability_text.set_text('  ·  '.join(feature.replace('_',' ').title() for feature in features))
+            # Saved per-key colors can change outside this window, for example from another client or a replay.
+            if self.layout and (colors:=full_key_map(self.layout,state.per_key.colors))!=self.keyboard_canvas.colors:
+                self.keyboard_canvas.set_colors(colors)
         finally: self.updating=False
         if 'per_key_mode' in state.features: self.ensure_layout()
 
@@ -677,40 +681,37 @@ class MainWindow(Adw.ApplicationWindow):
             if target=='keyboard' and (command=='set_per_zone_mode' or params['link_wasd']): self.drafts.pop('wasd',None)
             if target=='all': self.drafts.clear()
         self.mutate(command,params,applied)
-    def ensure_layout(self, then: Callable[[list[Lamp]], object] | None = None) -> None:
-        """Load the keyboard layout once; then(layout) runs when it is available, at once if it already is."""
+    def ensure_layout(self, done: Callable[[list[Lamp]], object] = lambda _:None,
+                      failed: Callable[[str], object] = lambda _:None) -> None:
+        """Load the keyboard layout once; done(layout) runs when it is available, at once if it already is, or failed(message) when the load fails."""
         if self.layout is not None:
-            if then: then(self.layout)
-            return
-        if then: self.layout_waiters.append(then)
+            done(self.layout); return
+        self.layout_waiters.append((done,failed))
         if self.layout_loading: return
         self.layout_loading=True
-        def done(layout: list[Lamp]) -> None:
+        def loaded(layout: list[Lamp]) -> None:
             self.layout_loading=False; self.layout=layout
             self.keyboard_canvas.set_layout(layout,full_key_map(layout,self.saved_per_key().colors))
             waiters,self.layout_waiters=self.layout_waiters,[]
-            for waiter in waiters: waiter(layout)
-        def failed(error: str) -> None:
+            for waiter,_ in waiters: waiter(layout)
+        def not_loaded(error: str) -> None:
             self.layout_loading=False
-            # Only a waiting request, such as opening the editor, reports the failure.
-            if self.layout_waiters: self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error))
-            self.layout_waiters=[]
-        self.async_call(lambda:parse_lamps(self.services.client.command('get_keyboard_layout')),done,failed)
+            waiters,self.layout_waiters=self.layout_waiters,[]
+            for _,waiter in waiters: waiter(error)
+        self.async_call(lambda:parse_lamps(self.services.client.command('get_keyboard_layout')),loaded,not_loaded)
     def saved_per_key(self) -> PerKey:
         return self.state.per_key if self.state else PerKey()
     def open_editor(self, *_: object) -> None:
         """Open the per-key editor as self.editor once the keyboard layout is loaded."""
-        self.ensure_layout(self.show_editor)
+        self.ensure_layout(self.show_editor,lambda error:self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)))
     def show_editor(self, layout: list[Lamp]) -> None:
         self.editor=KeyEditor(self,layout,self.saved_per_key(),self.services.preview,self.apply_per_key)
         self.update_sensitivity()
         self.editor.present()
     def apply_per_key(self, colors: dict[str, str], brightness: int, applied: Callable[[], None],
                       failed: Callable[[str], None]) -> None:
-        def done() -> None:
-            self.keyboard_canvas.set_colors(colors)
-            applied()
-        self.mutate('set_per_key',{'colors': dict[str, JSON](colors),'brightness': brightness},done,failed)
+        # The reply's settings update the lighting-page preview through receive_state.
+        self.mutate('set_per_key',{'colors': dict[str, JSON](colors),'brightness': brightness},applied,failed)
 
     def refresh_display(self) -> None:
         if self.display_pending: return

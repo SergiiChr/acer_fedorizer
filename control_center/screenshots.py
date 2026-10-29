@@ -41,9 +41,13 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
         name=names[index]
         app.window.set_default_size(1160,1120 if name=='lighting' else 900)
         # The lighting page and the keyboard editor show the keyboard layout, so both wait for it.
-        if name in ('lighting','keyboard'): app.window.ensure_layout(lambda _:show(index))
+        if name in ('lighting','keyboard'): app.window.ensure_layout(lambda _:show(index),lambda error:fail('Could not read keyboard layout: '+error))
         else: show(index)
         return False
+    def fail(error: str) -> None:
+        app.capture_error=error
+        print('Screenshot failed:',error,flush=True)
+        app.quit()
     def show(index: int) -> None:
         name=names[index]
         target: Gtk.Window | None
@@ -58,9 +62,7 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
                 print(directory/(name+'.png'),flush=True)
                 if name in ('keyboard','credits'): target.close()
             except Exception as error:  # noqa: BLE001 - any capture failure must end the run.
-                app.capture_error=str(error)
-                print('Screenshot failed:',error,flush=True)
-                app.quit(); return False
+                fail(str(error)); return False
             GLib.timeout_add(100,next_page,index+1)
             return False
         GLib.timeout_add(500,capture)
