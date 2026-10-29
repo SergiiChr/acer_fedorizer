@@ -21,6 +21,8 @@ log = logging.getLogger('fedorizer')
 
 
 class RequestHandler(socketserver.StreamRequestHandler):
+    server: 'NativeServer'
+
     def handle(self) -> None:
         self.request.settimeout(30)
         while True:
