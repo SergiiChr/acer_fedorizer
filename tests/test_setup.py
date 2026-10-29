@@ -10,6 +10,17 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PATH_PREFIXES = ('/opt/', '/var/lib/', '/usr/src', '/lib/modules', '/run',
+                 '/etc/systemd/system', '/etc/os-release', '/usr/local/bin/', '/usr/share/',
+                 '/sys/class/dmi/id/product_name', '/sys/module/laptop_lightbar', '/sys/module/damx_lightbar',
+                 '/tmp/CoreFxPipe_damx-', '/tmp/damx-*.lock')
+
+
+def patched(text: str, old: str, new: str) -> str:
+    """Replace old with new, failing when old is missing so a stale patch cannot leave a copy using the live system."""
+    if old not in text:
+        raise AssertionError(f'Patch target not found: {old!r}')
+    return text.replace(old, new)
 
 
 class SetupTests(unittest.TestCase):
@@ -18,18 +29,20 @@ class SetupTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.root = self.base / 'checkout'
         (self.root / 'scripts').mkdir(parents=True)
+        redirected=set()
         for path in [ROOT / 'setup.sh', *ROOT.glob('scripts/*.sh')]:
             target = self.root / path.relative_to(ROOT)
             text = path.read_text()
             # Change only copies of fixed system paths; production has no root overrides.
-            for prefix in ('/opt/', '/var/lib/', '/usr/src', '/lib/modules', '/run',
-                           '/etc/systemd/system', '/etc/os-release', '/usr/local/bin/', '/usr/share/',
-                           '/sys/class/dmi/id/product_name', '/sys/module/laptop_lightbar', '/sys/module/damx_lightbar',
-                           '/tmp/CoreFxPipe_damx-', '/tmp/damx-*.lock'):
-                text = text.replace(prefix, str(self.base) + prefix)
+            for prefix in PATH_PREFIXES:
+                if prefix in text:
+                    redirected.add(prefix)
+                    text = text.replace(prefix, str(self.base) + prefix)
             text = text.replace('if [[ $EUID -ne 0 ]]; then\n    exec sudo -- "$0" "$MODE"\nfi', '')
             text = text.replace('if [[ $EUID -ne 0 ]]; then exec sudo -- "$0"; fi', '')
+            self.assertNotIn('exec sudo', text, f'Unpatched sudo re-exec in {target.name}')
             self.executable(target, text)
+        self.assertEqual(set(PATH_PREFIXES) - redirected, set(), 'Path prefixes no longer used by any script')
         self.app = self.base / 'opt/acer-fedorizer'
         self.dkms = self.base / 'var/lib/dkms/laptop-lightbar'
         self.sources = self.base / 'usr/src'
@@ -59,7 +72,7 @@ class SetupTests(unittest.TestCase):
             path.write_text('pass\n' if path.suffix=='.py' else 'fixture\n')
         # Share production checks, with only their fixed filesystem root redirected.
         status=(ROOT/'control_center/installation.py').read_text()
-        status=status.replace("Path('/')", "Path("+repr(str(self.base))+")")
+        status=patched(status,"Path('/')", "Path("+repr(str(self.base))+")")
         (self.root/'control_center/installation.py').write_text(status)
         shutil.copyfile(ROOT/'control_center/client.py',self.root/'control_center/client.py')
 
@@ -410,7 +423,7 @@ class SetupTests(unittest.TestCase):
         orphan.parent.mkdir(parents=True)
         orphan.touch()
         common=self.root/'scripts/setup-common.sh'
-        common.write_text(common.read_text().replace('command -v dkms >/dev/null', 'false'))
+        common.write_text(patched(common.read_text(),'command -v dkms >/dev/null', 'false'))
         result=self.run_setup('uninstall')
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertFalse(self.dkms.exists())
@@ -454,7 +467,7 @@ class SetupTests(unittest.TestCase):
     def real_dependencies(self, distro: str, version: str) -> subprocess.CompletedProcess[str]:
         copied = self.root/'scripts/install-dependencies.sh'
         text = (ROOT/'scripts/install-dependencies.sh').read_text()
-        copied.write_text(text.replace('/etc/os-release', str(self.base/'etc/os-release')))
+        copied.write_text(patched(text,'/etc/os-release', str(self.base/'etc/os-release')))
         release=self.base/'etc/os-release'
         release.parent.mkdir(exist_ok=True)
         release.write_text(f'ID={distro}\nVERSION_ID={version}\n')
