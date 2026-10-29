@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 
 from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, _scale_rgb
@@ -59,6 +60,21 @@ def boolean(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f'Expected boolean {name}')
     return value
+
+
+class Target(StrEnum):
+    """A lighting device that commands can address one at a time."""
+    KEYBOARD = 'keyboard'
+    WASD = 'wasd'
+    LOGO = 'logo'
+    LIGHTBAR = 'lightbar'
+
+    @classmethod
+    def parse(cls, value: object) -> 'Target':
+        for target in cls:
+            if value == target.value:
+                return target
+        raise ValueError('Unsupported lighting target')
 
 
 @dataclass(frozen=True)
@@ -353,13 +369,19 @@ class NativeControls:
             kb.multi({key: _scale_rgb(rgb, layout.brightness) for key, rgb in layout.colors.items()})
         return lamps
 
-    def _apply_device(self, target: str, effect: Effect) -> None:
-        if target == 'wasd' and self.vendor:
-            self.vendor.effect(effect.mode, effect.rgb, effect.speed, effect.brightness, effect.direction, mag=True)
-        elif target == 'logo' and self.logo:
-            self.logo.effect(effect.mode, effect.rgb, effect.speed, effect.brightness, effect.direction)
-        elif target == 'lightbar' and self.bar_bridge:
-            self._set_bar(self.bar_bridge, effect)
+    def _apply(self, target: Target, effect: Effect) -> None:
+        """Send an effect to one lighting device; raise if that device is missing."""
+        match target:
+            case Target.KEYBOARD:
+                self._apply_keyboard(effect)
+            case Target.WASD if self.vendor:
+                self.vendor.effect(effect.mode, effect.rgb, effect.speed, effect.brightness, effect.direction, mag=True)
+            case Target.LOGO if self.logo:
+                self.logo.effect(effect.mode, effect.rgb, effect.speed, effect.brightness, effect.direction)
+            case Target.LIGHTBAR if self.bar_bridge:
+                self._set_bar(self.bar_bridge, effect)
+            case _:
+                raise ValueError(f'No {target} lighting device')
 
     def set_zones(self, colors: tuple[RGB, RGB, RGB, RGB]) -> None:
         if not self.keyboard:
@@ -416,12 +438,11 @@ class NativeControls:
         self._save()
 
     def set_global_lighting(self, effect: Effect) -> None:
-        if effect.mode not in self.lighting_modes().get('all', []):
+        modes = self.lighting_modes()
+        if effect.mode not in modes.get('all', []):
             raise ValueError('Choose an effect supported by every lighting device')
-        applied: list[str] = []
-        for target in self.lighting_modes():
-            if target == 'all':
-                continue
+        applied: list[Target] = []
+        for target in [target for target in Target if target in modes]:
             try:
                 self.set_lighting(target, effect, link_wasd=False)
             except (OSError, ValueError, RuntimeError) as error:
@@ -430,25 +451,23 @@ class NativeControls:
         self.lighting.all = effect
         self._save()
 
-    def set_lighting(self, target: str, effect: Effect, link_wasd: bool) -> None:
+    def set_lighting(self, target: Target, effect: Effect, link_wasd: bool) -> None:
         if effect.mode not in self.lighting_modes().get(target, []):
             raise ValueError('This device does not support the selected effect')
-        if target == 'keyboard':
-            self._apply_keyboard(effect)
-            if link_wasd and self.vendor:
-                wasd = replace(effect, mode=effect.mode if effect.mode in self.vendor.MAG_EFFECTS else 0)
-                self._apply_device('wasd', wasd)
-                self.lighting.wasd = wasd
-            self.lighting.keyboard, self.lighting.link_wasd = effect, link_wasd
-        else:
-            self._apply_device(target, effect)
-            match target:
-                case 'wasd':
-                    self.lighting.wasd = effect
-                case 'logo':
-                    self.lighting.logo = effect
-                case 'lightbar':
-                    self.lighting.lightbar = effect
+        self._apply(target, effect)
+        match target:
+            case Target.KEYBOARD:
+                if link_wasd and self.vendor:
+                    wasd = replace(effect, mode=effect.mode if effect.mode in self.vendor.MAG_EFFECTS else 0)
+                    self._apply(Target.WASD, wasd)
+                    self.lighting.wasd = wasd
+                self.lighting.keyboard, self.lighting.link_wasd = effect, link_wasd
+            case Target.WASD:
+                self.lighting.wasd = effect
+            case Target.LOGO:
+                self.lighting.logo = effect
+            case Target.LIGHTBAR:
+                self.lighting.lightbar = effect
         self._save()
 
     def restore_lighting(self) -> None:
@@ -459,25 +478,22 @@ class NativeControls:
             if self.discover_hid:
                 self.find_hid()
             saved = self.lighting
-            for target, entry in (('keyboard', saved.keyboard), ('wasd', saved.wasd),
-                                  ('logo', saved.logo), ('lightbar', saved.lightbar)):
+            for target, entry in ((Target.KEYBOARD, saved.keyboard), (Target.WASD, saved.wasd),
+                                  (Target.LOGO, saved.logo), (Target.LIGHTBAR, saved.lightbar)):
                 try:
                     self._restore(target, entry)
                 except (OSError, ValueError, RuntimeError) as error:
                     log.warning('Could not restore %s lighting: %s', target, error)
 
-    def _restore(self, target: str, entry: Effect | Zones | KeyColors | None) -> None:
+    def _restore(self, target: Target, entry: Effect | Zones | KeyColors | None) -> None:
         # A WASD entry recorded by a per-key layout has no mode; the keyboard layout already covers it.
         match entry:
             case Zones() if self.keyboard:
                 self._apply_zones(self.keyboard, entry.colors)
-            case KeyColors() if target == 'keyboard' and self.keyboard:
+            case KeyColors() if target == Target.KEYBOARD and self.keyboard:
                 self._apply_per_key(self.keyboard, entry)
             case Effect() if entry.mode in self.lighting_modes().get(target, []):
-                if target == 'keyboard':
-                    self._apply_keyboard(entry)
-                else:
-                    self._apply_device(target, entry)
+                self._apply(target, entry)
 
     def command(self, name: str, p: Mapping[str, object]) -> JsonObject:
         with self.lock:
@@ -489,10 +505,8 @@ class NativeControls:
                 target = p.get('target')
                 if target == 'all':
                     self.set_global_lighting(Effect.parse(p))
-                elif isinstance(target, str):
-                    self.set_lighting(target, Effect.parse(p), boolean(p.get('link_wasd', True), 'link_wasd'))
                 else:
-                    raise ValueError('Unsupported lighting target')
+                    self.set_lighting(Target.parse(target), Effect.parse(p), boolean(p.get('link_wasd', True), 'link_wasd'))
                 return self.settings()
             if name == 'get_keyboard_layout':
                 return self.keyboard_layout()

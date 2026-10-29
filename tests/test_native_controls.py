@@ -15,7 +15,7 @@ import errno
 from unittest.mock import MagicMock, Mock
 
 from hardware import uevents
-from hardware.controls import Effect, Lighting, NativeControls
+from hardware.controls import Effect, Lighting, NativeControls, Target
 from hardware.hid import CoverLogo, LampArrayDevice, VendorKeyboard, frame
 from hardware.hotkey import button_pressed
 
@@ -107,7 +107,17 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(previous, c.state_file.read_text())
         self.assertEqual(Lighting(keyboard=Effect(0, (0, 0, 255))), c.lighting)
 
-    def test_link_option_validates_before_any_keyboard_write(self) -> None:
+    def test_unknown_target_or_missing_device_is_rejected(self):
+        c = self.controls
+        c.vendor = Mock()
+        for target in ('lid', None, ['logo']):
+            with self.assertRaisesRegex(ValueError, 'Unsupported lighting target'):
+                c.command('set_lighting', {'target': target, 'mode': 0, 'color': 'ff0000'})
+        with self.assertRaisesRegex(ValueError, 'No logo lighting device'):
+            c._apply(Target.LOGO, Effect(0, (255, 0, 0)))
+        c.vendor.effect.assert_not_called()
+
+    def test_link_option_validates_before_any_keyboard_write(self):
         from unittest.mock import Mock
         c = self.controls
         c.vendor = Mock()
