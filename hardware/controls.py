@@ -12,17 +12,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Required, TypedDict
+from typing import Literal, Required, TypedDict, get_args
 
-from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, _scale_rgb
+from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, scale_rgb
 
 VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
 log = logging.getLogger('fedorizer')
 JsonObject = dict[str, object]
 Switch = Literal['backlight_timeout', 'battery_calibration', 'battery_limiter', 'boot_animation_sound', 'lcd_override']
-SWITCHES: tuple[Switch, ...] = ('backlight_timeout', 'battery_calibration', 'battery_limiter',
-                                'boot_animation_sound', 'lcd_override')
+SWITCHES: tuple[Switch, ...] = get_args(Switch)
 
 
 class FanState(TypedDict):
@@ -42,7 +41,9 @@ class KeyboardLayout(TypedDict):
 
 
 class Settings(TypedDict, total=False):
-    """The get_all_settings reply, also returned by every set_* command; optional keys exist only with their hardware."""
+    """The get_all_settings reply, also returned by set_* commands except set_thermal_profile, which replies {'current': profile}.
+    Optional keys exist only with their hardware.
+    """
     version: Required[str]
     driver_version: Required[str]
     laptop_type: Required[str]
@@ -97,6 +98,11 @@ def color(value: object) -> RGB:
     return r, g, b
 
 
+def color_hex(rgb: RGB) -> str:
+    """Return the six-digit hex form that color() reads."""
+    return bytes(rgb).hex()
+
+
 def key_colors(value: object) -> dict[int, RGB]:
     """Parse a {"lamp id": "rrggbb"} map into lamp IDs and colors."""
     if not isinstance(value, dict) or not 1 <= len(value) <= 4096:
@@ -127,9 +133,8 @@ class Target(StrEnum):
 
     @classmethod
     def parse(cls, value: object) -> 'Target':
-        for target in cls:
-            if value == target.value:
-                return target
+        if isinstance(value, str) and value in cls:
+            return cls(value)
         raise ValueError('Unsupported lighting target')
 
 
@@ -148,7 +153,7 @@ class Effect:
                    integer(p.get('brightness', 100), 0, 100), integer(p.get('direction', 1), 1, 2))
 
     def to_json(self) -> JsonObject:
-        return {'mode': self.mode, 'color': bytes(self.rgb).hex(), 'brightness': self.brightness,
+        return {'mode': self.mode, 'color': color_hex(self.rgb), 'brightness': self.brightness,
                 'speed': self.speed, 'direction': self.direction}
 
 
@@ -165,7 +170,7 @@ class KeyColors:
     brightness: int
 
     def colors_json(self) -> dict[str, str]:
-        return {str(key): bytes(rgb).hex() for key, rgb in self.colors.items()}
+        return {str(key): color_hex(rgb) for key, rgb in self.colors.items()}
 
 
 def zone_colors(value: object) -> tuple[RGB, RGB, RGB, RGB]:
@@ -180,16 +185,16 @@ def saved_effect(entry: Mapping[str, object]) -> Effect:
     return Effect.parse(entry)
 
 
-def saved_key_colors(entry: Mapping[str, object]) -> KeyColors:
+def key_colors_entry(entry: Mapping[str, object]) -> KeyColors:
     return KeyColors(key_colors(entry.get('colors')), integer(entry.get('brightness', 100), 0, 100))
 
 
 @dataclass
 class Lighting:
     """Lighting applied successfully, as saved in the state file and replayed after start, resume, or reconnect.
-    The keyboard shows either an effect, four zones, or the per_key layout; WASD shows an effect or its share of that layout.
+    The keyboard shows either an effect, four zones, or the saved per_key layout; WASD shows an effect or its share of that layout.
     """
-    keyboard: Effect | Zones | KeyColors | None = None
+    keyboard: Effect | Zones | Literal['per_key'] | None = None
     link_wasd: bool = True
     wasd: Effect | KeyColors | None = None
     logo: Effect | None = None
@@ -209,6 +214,9 @@ class Lighting:
                     lighting._parse_entry(target, data[target])
                 except ValueError as error:
                     log.warning('Ignoring saved %s lighting: %s', target, error)
+        if lighting.keyboard == 'per_key' and not lighting.per_key:
+            log.warning('Ignoring saved keyboard lighting: Saved per-key layout missing')
+            lighting.keyboard = None
         return lighting
 
     def _parse_entry(self, target: str, entry: object) -> None:
@@ -216,18 +224,16 @@ class Lighting:
             raise ValueError('Expected a saved lighting object')
         match target, entry.get('kind'):
             case 'per_key', _:
-                self.per_key = saved_key_colors(entry)
+                self.per_key = key_colors_entry(entry)
             case 'keyboard', 'zones':
                 self.keyboard = Zones(zone_colors(entry.get('colors')))
             case 'keyboard', 'per_key':
-                if not self.per_key:
-                    raise ValueError('Saved per-key layout missing')
-                self.keyboard = self.per_key
+                self.keyboard = 'per_key'
             case 'keyboard', _:
                 effect, link_wasd = saved_effect(entry), boolean(entry.get('link_wasd', True), 'link_wasd')
                 self.keyboard, self.link_wasd = effect, link_wasd
             case 'wasd', 'per_key':
-                self.wasd = saved_key_colors(entry)
+                self.wasd = key_colors_entry(entry)
             case 'wasd', _:
                 self.wasd = saved_effect(entry)
             case 'logo', _:
@@ -244,9 +250,9 @@ class Lighting:
             case Effect():
                 out['keyboard'] = self.keyboard.to_json() | {'link_wasd': self.link_wasd}
             case Zones():
-                out['keyboard'] = {'kind': 'zones', 'colors': [bytes(rgb).hex() for rgb in self.keyboard.colors]}
-            case KeyColors():
-                out['keyboard'] = {'kind': 'per_key', 'brightness': self.keyboard.brightness}
+                out['keyboard'] = {'kind': 'zones', 'colors': [color_hex(rgb) for rgb in self.keyboard.colors]}
+            case 'per_key' if self.per_key:
+                out['keyboard'] = {'kind': 'per_key', 'brightness': self.per_key.brightness}
         match self.wasd:
             case Effect():
                 out['wasd'] = self.wasd.to_json()
@@ -301,6 +307,7 @@ class NativeControls:
         except (OSError, ValueError):
             saved = {}
         self.lighting = Lighting.parse(saved)
+        self.lighting_json = self.lighting.to_json()
 
     def find_hid(self) -> None:
         """Refresh HID handles; device nodes change after a reconnect or resume."""
@@ -323,9 +330,11 @@ class NativeControls:
         Path(path).write_text(str(value))
 
     def _save(self) -> None:
+        """Write the lighting state file and refresh the lighting_json that settings() reports."""
+        self.lighting_json = self.lighting.to_json()
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_file.with_suffix('.tmp')
-        tmp.write_text(json.dumps(self.lighting.to_json()))
+        tmp.write_text(json.dumps(self.lighting_json))
         os.replace(tmp, self.state_file)
 
     def ac_online(self) -> bool | None:
@@ -344,7 +353,7 @@ class NativeControls:
                 'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
                 'available_features': sorted(self.features), 'ac_online': self.ac_online(),
                 'thermal_profile': {'current': profile, 'available': choices}, 'fan_rpm': rpm,
-                'lighting_modes': self.lighting_modes(), 'lighting_state': self.lighting.to_json()}
+                'lighting_modes': self.lighting_modes(), 'lighting_state': self.lighting_json}
             if self.hwmon:
                 out['fans'] = {name: fan_state(read(self.hwmon / f'pwm{i}_enable'), read(self.hwmon / f'pwm{i}', '0'))
                                for i, name in ((1, 'cpu'), (2, 'gpu'))}
@@ -358,8 +367,8 @@ class NativeControls:
                 out['battery_limiter'] = threshold is not None and threshold <= 80
             return out
 
-    def set_profile(self, profile: object) -> str:
-        if not self.profile_dir or not isinstance(profile, str) or profile not in read(self.profile_dir / 'choices').split():
+    def set_profile(self, profile: str) -> str:
+        if not self.profile_dir or profile not in read(self.profile_dir / 'choices').split():
             raise ValueError('Unsupported performance profile')
         # Firmware owns AC restrictions. Read its accepted state after writing.
         self._write(self.profile_dir / 'profile', profile)
@@ -376,14 +385,13 @@ class NativeControls:
             with contextlib.suppress(OSError):
                 self._write(self.hwmon / f'pwm{i}_enable', 2)
 
-    def set_fans(self, cpu: object, gpu: object) -> None:
+    def set_fans(self, cpu: int, gpu: int) -> None:
+        """Set both fans to validated 0-100 percentages, where 0 is automatic and 100 is full speed."""
         if 'fan_speed' not in self.features or not self.hwmon:
             raise ValueError('Stock Acer fan control unavailable')
-        speeds = [integer(cpu, 0, 100), integer(gpu, 0, 100)]
-        # Both values are validated before either fan is changed. If a write
-        # fails, restore automatic cooling rather than leave a half-applied mode.
+        # If a write fails, restore automatic cooling rather than leave a half-applied mode.
         try:
-            for i, speed in enumerate(speeds, 1):
+            for i, speed in enumerate((cpu, gpu), 1):
                 if speed in (0, 100):
                     self._write(self.hwmon / f'pwm{i}_enable', 2 if speed == 0 else 0)
                 else:
@@ -396,7 +404,7 @@ class NativeControls:
     def _apply_keyboard(self, effect: Effect) -> None:
         if effect.mode == 0 and self.keyboard:
             with self.keyboard.open() as kb:
-                kb.fill(_scale_rgb(effect.rgb, effect.brightness))
+                kb.fill(scale_rgb(effect.rgb, effect.brightness))
         elif self.vendor:
             if self.keyboard:
                 with self.keyboard.open() as kb:
@@ -417,7 +425,7 @@ class NativeControls:
             lamps = kb.lamps()
             if set(layout.colors) != {lamp['id'] for lamp in lamps if lamp['programmable']}:
                 raise ValueError('Send one color for every programmable keyboard lamp')
-            kb.multi({key: _scale_rgb(rgb, layout.brightness) for key, rgb in layout.colors.items()})
+            kb.multi({key: scale_rgb(rgb, layout.brightness) for key, rgb in layout.colors.items()})
         return lamps
 
     def _apply(self, target: Target, effect: Effect) -> None:
@@ -482,28 +490,36 @@ class NativeControls:
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
         lamps = self._apply_per_key(self.keyboard, layout)
-        self.lighting.per_key = self.lighting.keyboard = layout
+        self.lighting.per_key, self.lighting.keyboard = layout, 'per_key'
         wasd = {lamp['id'] for lamp in lamps if lamp.get('key_usage') in WASD_USAGES}
         if self.vendor and wasd and wasd <= layout.colors.keys():
             self.lighting.wasd = KeyColors({key: layout.colors[key] for key in wasd}, layout.brightness)
         self._save()
 
     def set_global_lighting(self, effect: Effect) -> None:
+        """Apply one effect to every device in turn, saving whatever succeeded even when a later device fails."""
         modes = self.lighting_modes()
         if effect.mode not in modes.get('all', []):
             raise ValueError('Choose an effect supported by every lighting device')
         applied: list[Target] = []
-        for target in [target for target in Target if target in modes]:
-            try:
-                self.set_lighting(target, effect, link_wasd=False)
-            except (OSError, ValueError, RuntimeError) as error:
-                raise RuntimeError(f"Sync failed on {target}; applied to {', '.join(applied) or 'none'}: {error}") from error
-            applied.append(target)
-        self.lighting.all = effect
-        self._save()
+        try:
+            for target in [target for target in Target if target in modes]:
+                try:
+                    self._set_lighting(target, effect, False, modes)
+                except (OSError, ValueError, RuntimeError) as error:
+                    raise RuntimeError(f"Sync failed on {target}; applied to {', '.join(applied) or 'none'}: {error}") from error
+                applied.append(target)
+            self.lighting.all = effect
+        finally:
+            self._save()
 
     def set_lighting(self, target: Target, effect: Effect, link_wasd: bool) -> None:
-        if effect.mode not in self.lighting_modes().get(target, []):
+        self._set_lighting(target, effect, link_wasd, self.lighting_modes())
+        self._save()
+
+    def _set_lighting(self, target: Target, effect: Effect, link_wasd: bool, modes: Mapping[str, list[int]]) -> None:
+        """Apply an effect to one device and record it in self.lighting without saving."""
+        if effect.mode not in modes.get(target, []):
             raise ValueError('This device does not support the selected effect')
         self._apply(target, effect)
         match target:
@@ -519,7 +535,6 @@ class NativeControls:
                 self.lighting.logo = effect
             case Target.LIGHTBAR:
                 self.lighting.lightbar = effect
-        self._save()
 
     def restore_lighting(self) -> None:
         """Replay saved lighting after start, resume, or a HID reconnect.
@@ -529,7 +544,8 @@ class NativeControls:
             if self.discover_hid:
                 self.find_hid()
             saved = self.lighting
-            for target, entry in ((Target.KEYBOARD, saved.keyboard), (Target.WASD, saved.wasd),
+            keyboard = saved.per_key if saved.keyboard == 'per_key' else saved.keyboard
+            for target, entry in ((Target.KEYBOARD, keyboard), (Target.WASD, saved.wasd),
                                   (Target.LOGO, saved.logo), (Target.LIGHTBAR, saved.lightbar)):
                 try:
                     self._restore(target, entry)
@@ -562,15 +578,17 @@ class NativeControls:
             if name == 'get_keyboard_layout':
                 return self.keyboard_layout()
             if name == 'set_per_key':
-                brightness = integer(p.get('brightness', 100), 0, 100)
-                self.set_per_key(KeyColors(key_colors(p.get('colors')), brightness))
+                self.set_per_key(key_colors_entry(p))
                 return self.settings()
             if name == 'set_thermal_profile':
-                return {'current': self.set_profile(p.get('profile'))}
+                profile = p.get('profile')
+                if not isinstance(profile, str):
+                    raise ValueError('Unsupported performance profile')
+                return {'current': self.set_profile(profile)}
             if name == 'set_fan_speed':
-                self.set_fans(p.get('cpu'), p.get('gpu'))
+                self.set_fans(integer(p.get('cpu'), 0, 100), integer(p.get('gpu'), 0, 100))
             elif name == 'set_per_zone_mode':
-                self.set_zones((color(p.get('zone1')), color(p.get('zone2')), color(p.get('zone3')), color(p.get('zone4'))))
+                self.set_zones(zone_colors([p.get(f'zone{i}') for i in range(1, 5)]))
             elif name == 'set_battery_limiter' and self.threshold:
                 self._write(self.threshold, 80 if boolean(p.get('enabled'), 'enabled') else 100)
             elif name.startswith('set_') and name[4:] in self.extra_files:

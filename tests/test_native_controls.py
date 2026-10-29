@@ -139,6 +139,8 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(Effect(1, (255, 0, 0)), c.lighting.wasd)
         self.assertNotIn('logo', c.lighting.to_json())
         self.assertNotIn('all', c.lighting.to_json())
+        self.assertEqual(c.lighting.to_json(), json.loads(c.state_file.read_text()))
+        self.assertEqual(c.lighting.to_json(), c.settings()['lighting_state'])
 
     def test_per_key_validates_full_map_and_scales_brightness(self) -> None:
         from unittest.mock import MagicMock
@@ -153,7 +155,7 @@ class NativeTests(unittest.TestCase):
         c.command('set_per_key', {'colors': {'0':'ff0000','1':'0000ff'},'brightness': 50})
         keyboard.multi.assert_called_once_with({0:(128,0,0),1:(0,0,128)})
         self.assertEqual(KeyColors({0: (255, 0, 0), 1: (0, 0, 255)}, 50), c.lighting.per_key)
-        self.assertIs(c.lighting.per_key, c.lighting.keyboard)
+        self.assertEqual('per_key', c.lighting.keyboard)
         previous = c.state_file.read_text()
         keyboard.multi.side_effect = OSError('transfer failed')
         with self.assertRaises(OSError):
@@ -217,7 +219,7 @@ class NativeTests(unittest.TestCase):
 
     def test_invalid_second_fan_cannot_partially_apply_first(self) -> None:
         with self.assertRaises(ValueError):
-            self.controls.set_fans(100, 200)
+            self.controls.command('set_fan_speed', {'cpu': 100, 'gpu': 200})
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())
 
     def test_bar_bridge_discovery_validation_and_failed_state(self) -> None:

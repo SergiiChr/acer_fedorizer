@@ -56,7 +56,7 @@ def HIDIOCGFEATURE(length: int) -> int:
     # linux/hidraw.h: _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x07, len)
     return _IOC(_IOC_WRITE | _IOC_READ, 'H', 0x07, length)
 
-def _scale_rgb(rgb: RGB, pct: int) -> RGB:
+def scale_rgb(rgb: RGB, pct: int) -> RGB:
     """Scale an (r,g,b) tuple by a brightness percentage (0-100)."""
     pct = max(0, min(100, pct))
     r, g, b = (min(255, round(c * pct / 100)) for c in rgb)
