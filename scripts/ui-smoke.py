@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Exercise actual GTK widgets with preview services; no hardware access."""
 import sys
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -14,7 +16,16 @@ from control_center.widgets import color_rgba
 app=Application(demo=True)
 failures=[]
 
-def checks():
+def when(ready: Callable[[], bool], verify: Callable[[], bool], timeout: float = 5) -> None:
+    """Run verify once ready() is true or the timeout passes, so slow async applies do not fail at random."""
+    deadline=time.monotonic()+timeout
+    def poll() -> bool:
+        if ready() or time.monotonic()>deadline:
+            verify(); return False
+        return True
+    GLib.timeout_add(50,poll)
+
+def checks() -> bool:
     try:
         window=app.window
         assert not any(command.startswith('set_') for command,_ in window.client.commands),'Startup wrote a setting'
@@ -44,13 +55,13 @@ def checks():
             assert window.cpu_slider.get_sensitive()==(index==2)
             assert window.gpu_slider.get_sensitive()==(index==2)
         window.show_credits()
-        def descendants(widget):
+        from gi.repository import Gtk
+        def descendants(widget: Gtk.Widget) -> Iterator[Gtk.Widget]:
             yield widget
             child=widget.get_first_child()
             while child:
                 yield from descendants(child)
                 child=child.get_next_sibling()
-        from gi.repository import Gtk
         credits=[widget for widget in descendants(window.credits_window) if isinstance(widget,Gtk.Label)]
         rendered='\n'.join(widget.get_text() for widget in credits)
         assert 'Licenses, attribution, and distribution' in rendered
@@ -100,14 +111,14 @@ def checks():
         window.apply_lighting()
         assert window.pending,'Explicit apply was not scheduled'
         assert not window.light_group.get_sensitive(),'Editor remained active during apply'
-        GLib.timeout_add(250,verify_apply)
+        when(lambda:not window.pending and not window.status_pending,verify_apply)
         return False
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()
     return False
 
-def verify_apply():
+def verify_apply() -> bool:
     try:
         window=app.window
         assert not window.status_pending and window.status_button.get_sensitive()
@@ -125,7 +136,7 @@ def verify_apply():
     app.window.close(); app.quit()
     return False
 
-def check_key_brightness():
+def check_key_brightness() -> None:
     window=app.window
     saved={str(lamp['id']):'112233' for lamp in window.layout['lamps']}
     for brightness in (None,0,20,100):
@@ -143,10 +154,10 @@ def check_key_brightness():
     window.editor.picker.set_rgba(color_rgba('445566')); window.editor.paint()
     window.editor.submit()
     assert not window.editor.apply.get_sensitive()
-    GLib.timeout_add(250,verify_key_brightness)
+    when(window.editor.apply.get_sensitive,verify_key_brightness)
 
 
-def verify_key_brightness():
+def verify_key_brightness() -> bool:
     try:
         window=app.window
         calls=[params for command,params in window.client.commands if command=='set_per_key']
@@ -167,7 +178,7 @@ def verify_key_brightness():
     return False
 
 
-def check_zones():
+def check_zones() -> None:
     window=app.window
     assert window.light_apply.get_visible() and not hasattr(window,'header_apply'),'Lighting has more than one Apply button'
     window.target_combo.set_selected(window.targets.index('keyboard'))
@@ -176,10 +187,10 @@ def check_zones():
     assert not window.brightness_row.get_visible() and not window.color_row.get_visible(),'Zone mode shows effect controls'
     window.zone_buttons[1].set_rgba(color_rgba('102030'))
     window.apply_lighting()
-    GLib.timeout_add(250,verify_zones)
+    when(lambda:not window.pending,verify_zones)
 
 
-def verify_zones():
+def verify_zones() -> bool:
     try:
         window=app.window
         calls=[params for command,params in window.client.commands if command=='set_per_zone_mode']
