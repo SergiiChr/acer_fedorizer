@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from control_center.client import ControlClient
-from control_center.models import ZONE_MODE, LightingDraft, full_key_map
+from control_center.models import ZONE_MODE, Fan, FanMode, Fans, Lamp, LightingDraft, PerKey, Settings, full_key_map
 from control_center.telemetry import Telemetry, gpu_fields
 
 
@@ -95,9 +95,22 @@ class ModelTests(unittest.TestCase):
         self.assertNotEqual(a.color,b.color)
         a.color='bad'
         with self.assertRaises(ValueError): a.request('keyboard')
-    def test_key_maps_include_only_programmable_lamps(self) -> None:
-        lamps=[{'id': 0,'programmable': True},{'id': 1,'programmable': False},{'id': 2,'programmable': True}]
+    def test_key_maps_include_only_programmable_lamps(self):
+        lamps=[Lamp(0,0,0,0,True),Lamp(1,0,0,0,False),Lamp(2,0,0,0,True)]
         self.assertEqual(full_key_map(lamps,{'0':'#FF0000'}),{'0':'ff0000','2':'5bbfbd'})
+    def test_settings_parse_contract_and_keep_defaults_for_missing_keys(self) -> None:
+        settings=Settings.parse({'available_features':['fan_speed'],'fans':{'cpu':{'mode':'manual','percent':40},'gpu':{'mode':'max','percent':100}},
+                                 'battery_limiter':True,'lcd_override':False,'usb_charging':20,'fan_rpm':{'cpu':2100,'gpu':None},
+                                 'lighting_state':{'per_key':{'colors':{'0':'ff0000'},'brightness':250},'keyboard':{'mode':1}}})
+        self.assertEqual(settings.fans,Fans(Fan(FanMode.MANUAL,40),Fan(FanMode.MAX,100)))
+        self.assertEqual((settings.battery_limiter,settings.lcd_override,settings.usb_charging),(True,False,20))
+        self.assertEqual(settings.fan_rpm,{'cpu':2100})
+        self.assertEqual(settings.per_key,PerKey({'0':'ff0000'},100))
+        self.assertEqual(settings.lighting['keyboard'],{'mode':1})
+        empty=Settings.parse({})
+        self.assertEqual((empty.fans,empty.laptop_type,empty.per_key.brightness,empty.usb_charging),(None,'Unknown',80,0))
+        self.assertIsNone(Settings.parse({'fans':{'cpu':{'mode':'turbo','percent':1}}}).fans)
+        with self.assertRaises(ValueError): Settings.parse([])
     def test_gpu_prefers_average_and_rejects_observed_invalid_power(self):
         self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405').power,5)
         self.assertIsNone(gpu_fields('40,2,100,12000,N/A,588,175,200,405').power)

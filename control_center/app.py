@@ -24,8 +24,12 @@ from .models import (
     TARGETS,
     ZONE_COLORS,
     ZONE_MODE,
+    FanMode,
     LightingDraft,
+    PerKey,
+    Settings,
     full_key_map,
+    parse_lamps,
     rgb_hex,
     uses_palette,
 )
@@ -80,7 +84,7 @@ class MainWindow(Adw.ApplicationWindow):
         super().__init__(application=application,title='Acer Fedorizer',default_width=1160,default_height=900)
         self.demo=demo; self.closed=False; self.pending=False; self.polling=False; self.display_pending=False
         self.client=preview.PreviewClient() if demo else ControlClient()
-        self.telemetry=Telemetry(); self.state={}; self.connected=False; self.updating=False
+        self.telemetry=Telemetry(); self.state=None; self.connected=False; self.updating=False
         self.drafts={}; self.current_target=None; self.lighting_loading=False; self.layout=None
         self.gpu_enabled=False; self.status_pending=False; self.editor=None
         self.fan_draft_loaded=False; self.display_watched=False
@@ -88,10 +92,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.build()
         self.connect('realize',lambda *_: self.get_surface().connect('notify::state',self.surface_changed))
         if demo:
-            self.receive_state(self.client.command('get_all_settings'),None)
+            self.receive_state(Settings.parse(self.client.command('get_all_settings')),None)
             sample=preview.sample()
             self.receive_sample(sample); self.receive_battery(sample.battery)
-            self.set_layout(preview.layout())
+            self.set_layout(parse_lamps(preview.layout()))
             self.receive_installation_status(preview.installation_status(),None)
             self.receive_display(display.PanelStatus(True,False,'eDP-1','default','Built-in display · Native SDR supported'))
             for i in range(60):
@@ -420,14 +424,14 @@ class MainWindow(Adw.ApplicationWindow):
         if self.closed: return False
         if self.polling or self.pending or not self.on_screen(): return True
         if self.demo:
-            self.receive_state(self.client.command('get_all_settings'),None)
+            self.receive_state(Settings.parse(self.client.command('get_all_settings')),None)
             self.receive_sample(preview.sample(self.gpu_enabled))
             return True
         self.polling=True
         overview=self.stack.get_visible_child_name()=='overview'
         gpu=self.gpu_enabled and overview
-        def work() -> tuple[JsonDict | None, str | None, JsonDict]:
-            try: state,error=self.client.command('get_all_settings'),None
+        def work():
+            try: state,error=Settings.parse(self.client.command('get_all_settings')),None
             except (OSError,ValueError,RuntimeError) as exc: state,error=None,str(exc)
             sample=self.telemetry.sample(gpu) if overview else None
             return state,error,sample,sample.battery if sample else self.telemetry.battery()
@@ -453,12 +457,12 @@ class MainWindow(Adw.ApplicationWindow):
 
     def update_sensitivity(self) -> None:
         """Disable every control that could start a second change while one is pending."""
-        features=self.state.get('available_features',[]) if self.connected else []
+        features=self.state.features if self.state and self.connected else ()
         ready=self.connected and not self.pending
         self.profile_group.set_sensitive(ready and 'thermal_profile' in features)
         self.fan_group.set_sensitive(ready and 'fan_speed' in features)
         self.light_group.set_sensitive(ready)
-        self.light_apply.set_sensitive(ready and bool(self.state.get('lighting_modes')))
+        self.light_apply.set_sensitive(ready and bool(self.state and self.state.lighting_modes))
         self.per_key_button.set_sensitive(ready and 'per_key_mode' in features)
         for widget in (self.charge_limit,self.calibration,self.extras): widget.set_sensitive(ready)
         if self.editor: self.editor.apply.set_sensitive(ready)
@@ -472,36 +476,35 @@ class MainWindow(Adw.ApplicationWindow):
         if state is None: return
         self.updating=True
         try:
-            features=state.get('available_features',[])
-            profile=state.get('thermal_profile',{})
-            choices=profile.get('available',[])
-            current=profile.get('current','')
+            features=state.features
+            choices=list(state.profiles)
+            current=state.profile
             if choices!=self.profile_choices:
                 self.profile_choices=choices
                 self.profile_tiles.set_choices([(PROFILES.get(v,v),PROFILE_ICONS.get(v,'preferences-system-symbolic')) for v in choices])
                 if current in choices: self.profile_tiles.set_selected(choices.index(current))
             self.current_profile.set_subtitle(PROFILES.get(current,current or 'Unavailable'))
             self.profile_hero.set_text(PROFILES.get(current,current or 'Monitoring'))
-            ac=state.get('ac_online')
+            ac=state.ac_online
             self.ac_label.set_text('AC power' if ac is True else 'Battery power' if ac is False else 'Power source unknown')
             for key,widget in (('cpu',self.cpu_rpm),('gpu',self.gpu_rpm)):
-                widget.set_text(number_text(state.get('fan_rpm',{}).get(key),' RPM'))
-            fan_values=state.get('fan_speed',{})
-            confirmed='Automatic' if fan_values.get('cpu')==fan_values.get('gpu')=='0' else 'Maximum' if fan_values.get('cpu')==fan_values.get('gpu')=='100' else 'Manual or mixed control'
+                widget.set_text(number_text(state.fan_rpm.get(key),' RPM'))
+            modes={state.fans.cpu.mode,state.fans.gpu.mode} if state.fans else set()
+            confirmed='Automatic' if modes=={FanMode.AUTO} else 'Maximum' if modes=={FanMode.MAX} else 'Manual or mixed control'
             self.fan_current.set_subtitle(confirmed+' · selection above is an editing draft')
             if not self.fan_draft_loaded:
                 self.fan_draft_loaded=True
-                self.load_fan_draft(fan_values)
+                self.load_fan_draft(state.fans)
             self.charge_limit.set_visible('battery_limiter' in features)
-            self.charge_limit.set_active(state.get('battery_limiter')=='1')
+            self.charge_limit.set_active(state.battery_limiter)
             self.calibration.set_visible('battery_calibration' in features)
+            switches={'backlight_timeout':state.backlight_timeout,'boot_animation_sound':state.boot_animation_sound,'lcd_override':state.lcd_override}
             for key,row in self.extra_switches.items():
-                row.set_visible(key in features); row.set_active(state.get(key)=='1')
+                row.set_visible(key in features); row.set_active(switches[key])
             self.usb_combo.set_visible('usb_charging' in features)
-            self.usb_combo.set_selected({'0':0,'10':1,'20':2,'30':3}.get(state.get('usb_charging','0'),0))
+            self.usb_combo.set_selected({0:0,10:1,20:2,30:3}.get(state.usb_charging,0))
             self.extras.set_visible(any(row.get_visible() for row in self.extra_switches.values()) or 'usb_charging' in features)
-            modes=state.get('lighting_modes',{})
-            targets=[key for key in TARGETS if modes.get(key)]
+            targets=[key for key in TARGETS if state.lighting_modes.get(key)]
             if targets!=self.targets:
                 self.lighting_loading=True
                 self.targets=targets
@@ -510,9 +513,9 @@ class MainWindow(Adw.ApplicationWindow):
                 self.current_target=targets[0] if targets else None
                 self.lighting_loading=False
                 self.load_draft()
-            self.system_labels['model'].set_text(state.get('laptop_type','Unknown'))
-            self.system_labels['driver'].set_text(state.get('driver_version','Stock kernel + HID'))
-            self.system_labels['version'].set_text(state.get('version','—'))
+            self.system_labels['model'].set_text(state.laptop_type)
+            self.system_labels['driver'].set_text(state.driver_version)
+            self.system_labels['version'].set_text(state.version)
             self.system_labels['socket'].set_text('Preview' if self.demo else 'Connected · local Unix socket')
             self.capability_text.set_text('  ·  '.join(feature.replace('_',' ').title() for feature in features))
         finally: self.updating=False
@@ -568,22 +571,26 @@ class MainWindow(Adw.ApplicationWindow):
             if error: self.toast.add_toast(Adw.Toast(title='Could not apply: '+error,timeout=8))
             else:
                 self.toast.add_toast(Adw.Toast(title='Settings applied' if not self.demo else 'Preview updated · no hardware changed'))
-                if isinstance(result,dict) and 'available_features' in result: self.receive_state(result,None)
+                if result: self.receive_state(result,None)
             # Also resets switches that were toggled for a change that failed.
             self.receive_state(self.state if self.connected else None,None)
             if callback: callback(result,error)
             if not self.closed: self.refresh()
-        self.async_call(lambda:self.client.command(command,params),done)
+        def work():
+            # Setting commands reply with the settings they produced.
+            reply=self.client.command(command,params)
+            return Settings.parse(reply) if isinstance(reply,dict) and 'available_features' in reply else None
+        self.async_call(work,done)
 
     def apply_profile(self, *_: object) -> None:
         index=self.profile_tiles.get_selected()
         if index<len(self.profile_choices): self.mutate('set_thermal_profile',{'profile': self.profile_choices[index]})
-    def load_fan_draft(self, values: JsonDict) -> None:
+    def load_fan_draft(self,fans):
         # Seeds the editing draft once from firmware; later refreshes must not discard edits.
-        speeds=[int(v) if str(v).isdecimal() else 0 for v in (values.get('cpu','0'),values.get('gpu','0'))]
-        self.fan_mode.set_selected(0 if speeds==[0,0] else 1 if speeds==[100,100] else 2)
-        for slider,speed in zip((self.cpu_slider,self.gpu_slider),speeds,strict=True):
-            if 0<speed<100: slider.set_value(speed)
+        modes={fans.cpu.mode,fans.gpu.mode} if fans else {FanMode.AUTO}
+        self.fan_mode.set_selected(0 if modes=={FanMode.AUTO} else 1 if modes=={FanMode.MAX} else 2)
+        for slider,fan in zip((self.cpu_slider,self.gpu_slider),(fans.cpu,fans.gpu) if fans else (),strict=False):
+            if fan.mode==FanMode.MANUAL and 0<fan.percent<100: slider.set_value(fan.percent)
         self.update_fan_sensitivity()
     def update_fan_sensitivity(self):
         manual=self.fan_mode.get_selected()==2
@@ -614,10 +621,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.load_draft()
     def load_draft(self) -> None:
         if not self.current_target: return
-        modes=self.state.get('lighting_modes',{}).get(self.current_target,[])
+        if not self.state: return
+        modes=self.state.lighting_modes.get(self.current_target,[])
         if not modes: return
-        if self.current_target=='keyboard' and 'per_zone_mode' in self.state.get('available_features',[]): modes=[*modes,ZONE_MODE]
-        draft=self.drafts.get(self.current_target) or LightingDraft.from_state(self.state.get('lighting_state',{}).get(self.current_target,{}),modes)
+        if self.current_target=='keyboard' and 'per_zone_mode' in self.state.features: modes=[*modes,ZONE_MODE]
+        draft=self.drafts.get(self.current_target) or LightingDraft.from_state(self.state.lighting.get(self.current_target,{}),modes)
         self.lighting_loading=True
         self.effect_ids=modes
         self.effect_combo.set_model(Gtk.StringList.new([EFFECT_NAMES.get(i,str(i)) for i in modes]))
@@ -661,16 +669,18 @@ class MainWindow(Adw.ApplicationWindow):
             if target=='keyboard' and (command=='set_per_zone_mode' or params['link_wasd']): self.drafts.pop('wasd',None)
             if target=='all': self.drafts.clear()
         self.mutate(command,params,applied)
-    def load_layout(self) -> None:
-        self.async_call(lambda:self.client.command('get_keyboard_layout'),lambda result,error:self.set_layout(result) if not error else None)
-    def set_layout(self, layout: JsonDict) -> None:
+    def load_layout(self):
+        self.async_call(self.read_layout,lambda result,error:self.set_layout(result) if not error else None)
+    def read_layout(self):
+        return parse_lamps(self.client.command('get_keyboard_layout'))
+    def set_layout(self,layout):
         self.layout=layout
-        saved=self.state.get('lighting_state',{}).get('per_key',{}).get('colors',{})
-        self.keyboard_canvas.set_layout(layout.get('lamps',[]),full_key_map(layout.get('lamps',[]),saved))
+        saved=self.state.per_key.colors if self.state else {}
+        self.keyboard_canvas.set_layout(layout,full_key_map(layout,saved))
     def open_editor(self,*_):
         """Open the per-key editor and return it, or return None while the keyboard layout is still loading."""
         if not self.layout:
-            self.async_call(lambda:self.client.command('get_keyboard_layout'),self.editor_layout)
+            self.async_call(self.read_layout,self.editor_layout)
             return None
         return self.editor_layout(self.layout,None)
     def editor_layout(self,layout,error):
@@ -738,7 +748,8 @@ class KeyEditor(Adw.Window):
     def __init__(self, parent: MainWindow, layout: JsonDict) -> None:
         super().__init__(title='Per-key lighting',transient_for=parent,modal=True,default_width=1020,default_height=600)
         self.parent=parent
-        self.colors=full_key_map(layout['lamps'],parent.state.get('lighting_state',{}).get('per_key',{}).get('colors',{}))
+        per_key=parent.state.per_key if parent.state else PerKey()
+        self.colors=full_key_map(layout,per_key.colors)
         toolbar=Adw.ToolbarView(); header=Adw.HeaderBar()
         if parent.demo: header.pack_start(label('Preview data','preview-badge'))
         toolbar.add_top_bar(header)
@@ -746,7 +757,7 @@ class KeyEditor(Adw.Window):
         for setter in (content.set_margin_start,content.set_margin_end,content.set_margin_top,content.set_margin_bottom): setter(28)
         content.append(label('Per-key lighting','page-heading'))
         content.append(label('Select keys, set their colors, then apply the static layout.','page-description'))
-        self.canvas=KeyboardCanvas(250,selectable=True); self.canvas.set_layout(layout['lamps'],self.colors)
+        self.canvas=KeyboardCanvas(250,selectable=True); self.canvas.set_layout(layout,self.colors)
         self.canvas.add_css_class('keyboard-card'); content.append(self.canvas)
         controls=box(12,True)
         controls.append(button('Select all',lambda *_:self.select_all(),'flat'))
@@ -759,9 +770,7 @@ class KeyEditor(Adw.Window):
         self.canvas.on_selection=lambda count:self.selection.set_text(f'{count} keys selected' if count else 'No keys selected')
         row=box(12,True); row.append(label('Brightness','dim-label'))
         self.brightness=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
-        saved_brightness=parent.state.get('lighting_state',{}).get('per_key',{}).get('brightness',80)
-        if not isinstance(saved_brightness,(int,float)) or isinstance(saved_brightness,bool) or not math.isfinite(saved_brightness): saved_brightness=80
-        self.brightness.set_value(max(0,min(100,saved_brightness))); self.brightness.set_draw_value(True); self.brightness.set_hexpand(True)
+        self.brightness.set_value(per_key.brightness); self.brightness.set_draw_value(True); self.brightness.set_hexpand(True)
         row.append(self.brightness)
         self.apply=button('Apply keyboard colors',self.submit,'suggested-action'); row.append(self.apply); content.append(row)
         self.result=label('The current preview is an editing draft, not a hardware readback.','dim-label'); content.append(self.result)
@@ -781,7 +790,7 @@ class KeyEditor(Adw.Window):
         params={'colors':colors,'brightness':round(self.brightness.get_value())}
         def done(_: object, error: str | None) -> None:
             self.result.set_text('Could not apply: '+error if error else 'Preview updated · no hardware changed' if self.parent.demo else 'Static layout applied. Confirm the visible result on your keyboard.')
-            if not error: self.parent.keyboard_canvas.set_layout(self.parent.layout['lamps'],colors)
+            if not error: self.parent.keyboard_canvas.set_layout(self.parent.layout,colors)
         self.parent.mutate('set_per_key',params,done)
 
 

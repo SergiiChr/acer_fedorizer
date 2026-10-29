@@ -10,7 +10,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from gi.repository import GLib
 
 from control_center.app import Application
-from control_center.models import ZONE_MODE
+from control_center.models import ZONE_MODE, Settings
 from control_center.widgets import color_rgba
 
 app=Application(demo=True)
@@ -44,7 +44,7 @@ def checks() -> bool:
             assert tile.get_tooltip_text()==name
             tile.emit('clicked'); tile.emit('clicked')
             assert tile.get_active() and sum(b.get_active() for b in window.profile_tiles.buttons)==1
-            window.receive_state(window.client.command('get_all_settings'),None)
+            window.receive_state(Settings.parse(window.client.command('get_all_settings')),None)
             assert window.profile_tiles.get_selected()==index,'Refresh discarded profile selection'
             window.apply_profile()
             assert submitted[-1]==('set_thermal_profile',{'profile':profile})
@@ -86,7 +86,7 @@ def checks() -> bool:
         window.target_combo.set_selected(window.targets.index('keyboard'))
         assert window.color_entry.get_text()=='#FF2300','Keyboard draft lost'
         assert window.brightness.get_value()==47,'Brightness draft lost'
-        window.receive_state(window.client.command('get_all_settings'),None)
+        window.receive_state(Settings.parse(window.client.command('get_all_settings')),None)
         assert window.color_entry.get_text()=='#FF2300','Refresh discarded edits'
         window.effect_combo.set_selected(window.effect_ids.index(3))
         assert not window.color_entry.get_sensitive(),'Palette color still editable'
@@ -138,19 +138,19 @@ def verify_apply() -> bool:
 
 def check_key_brightness() -> None:
     window=app.window
-    saved={str(lamp['id']):'112233' for lamp in window.layout['lamps']}
+    saved={str(lamp.id):'112233' for lamp in window.layout}
     for brightness in (None,0,20,100):
         state={'colors':saved.copy()}
         if brightness is not None: state['brightness']=brightness
-        window.client.state['lighting_state']['per_key']=state
-        window.receive_state(window.client.command('get_all_settings'),None)
+        window.client.lighting['per_key']=state
+        window.receive_state(Settings.parse(window.client.command('get_all_settings')),None)
         window.open_editor()
         assert window.editor.brightness.get_value()==(80 if brightness is None else brightness),'Per-key brightness was reset'
         window.editor.close()
-    window.client.state['lighting_state']['per_key']={'colors':saved.copy(),'brightness':20}
-    window.receive_state(window.client.command('get_all_settings'),None)
+    window.client.lighting['per_key']={'colors':saved.copy(),'brightness':20}
+    window.receive_state(Settings.parse(window.client.command('get_all_settings')),None)
     window.open_editor()
-    window.editor.canvas.selected={window.layout['lamps'][0]['id']}
+    window.editor.canvas.selected={window.layout[0].id}
     window.editor.picker.set_rgba(color_rgba('445566')); window.editor.paint()
     window.editor.submit()
     assert not window.editor.apply.get_sensitive()
@@ -162,7 +162,7 @@ def verify_key_brightness() -> bool:
         window=app.window
         calls=[params for command,params in window.client.commands if command=='set_per_key']
         assert len(calls)==1 and calls[0]['brightness']==20,'Editing one key changed brightness'
-        first=str(window.layout['lamps'][0]['id'])
+        first=str(window.layout[0].id)
         assert calls[0]['colors'][first]=='445566'
         assert all(color=='112233' for key,color in calls[0]['colors'].items() if key!=first),'Unselected key colors changed'
         assert window.editor.apply.get_sensitive(),'Per-key Apply did not recover'
@@ -196,7 +196,7 @@ def verify_zones() -> bool:
         calls=[params for command,params in window.client.commands if command=='set_per_zone_mode']
         assert len(calls)==1 and calls[0]['zone2']=='102030','Zones were not applied'
         assert set(calls[0])=={'zone1','zone2','zone3','zone4'},'Zones sent extra settings'
-        window.receive_state(window.client.command('get_all_settings'),None)
+        window.receive_state(Settings.parse(window.client.command('get_all_settings')),None)
         window.drafts.clear(); window.load_draft()
         assert window.effect_ids[window.effect_combo.get_selected()]==ZONE_MODE,'Saved zones not loaded'
         print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, and no startup writes',flush=True)

@@ -152,7 +152,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
         cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
         layout=PangoCairo.create_layout(cr)
         for lamp,kx,ky,kw,kh in caps:
-            lid=lamp['id']; selected=lid in self.selected
+            lid=lamp.id; selected=lid in self.selected
             x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
             w=kw*scale; h=kh*scale
             self.rects.append((x,y,w,h,lid))
@@ -165,7 +165,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
             self.rounded(cr,x,y,w,h,4)
             cr.set_source_rgba(*rgb,.35 if selected else .13); cr.fill_preserve()
             cr.set_source_rgba(*rgb,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
-            text=lamp.get('label') or USAGES.get(lamp.get('key_usage'),'LED '+str(lid))
+            text=USAGES.get(lamp.key_usage,'LED '+str(lid))
             layout.set_text(text,-1)
             layout.set_font_description(Pango.FontDescription.from_string('Sans '+str(min(9,max(5.5,w/max(1,len(text))*1.1)))))
             tw,th=layout.get_pixel_size()

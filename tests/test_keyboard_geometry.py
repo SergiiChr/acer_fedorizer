@@ -2,19 +2,20 @@
 import unittest
 
 from control_center.keyboard import keycaps
+from control_center.models import parse_lamps
 from control_center.preview import layout
 
 
 class KeyboardGeometryTests(unittest.TestCase):
     def test_measured_offsets_do_not_create_spurious_rows(self) -> None:
-        lamps=layout()['lamps']
+        lamps=parse_lamps(layout())
         caps=keycaps(lamps)
-        rows={round(y+h/2,2) for lamp,x,y,w,h in caps if lamp['key_usage']!=88}
+        rows={round(y+h/2,2) for lamp,x,y,w,h in caps if lamp.key_usage!=88}
         self.assertEqual(len(rows),6)
-        self.assertEqual({lamp['id'] for lamp,*_ in caps},{lamp['id'] for lamp in lamps})
-        space=next(c for c in caps if c[0]['key_usage']==44)
-        letter=next(c for c in caps if c[0]['key_usage']==4)
-        enter=next(c for c in caps if c[0]['key_usage']==88)
+        self.assertEqual({lamp.id for lamp,*_ in caps},{lamp.id for lamp in lamps})
+        space=next(c for c in caps if c[0].key_usage==44)
+        letter=next(c for c in caps if c[0].key_usage==4)
+        enter=next(c for c in caps if c[0].key_usage==88)
         self.assertGreater(space[3],letter[3]*4)
         self.assertGreater(enter[4],letter[4]*2)
         for i,(_,x,y,w,h) in enumerate(caps):

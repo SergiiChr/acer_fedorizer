@@ -4,38 +4,54 @@ import copy
 import json
 from pathlib import Path
 
+from .client import JSON
 from .installation import CHECKS, Check, Report
 from .telemetry import Battery, Gpu, Sample
 
 from .client import JsonDict
 
-
-def layout() -> JsonDict:
+def layout() -> JSON:
     # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.
-    return json.loads(Path(__file__).with_name('keyboard-preview.json').read_text())
+    data: JSON=json.loads(Path(__file__).with_name('keyboard-preview.json').read_text())
+    return data
 
 
-STATE={'version': '0.8.0','driver_version': 'Stock acer_wmi + USB HID','laptop_type': 'Predator PH16-72',
-    'thermal_profile': {'current': 'balanced','available': ['low-power','quiet','balanced','balanced-performance','performance']},
-    'available_features': ['thermal_profile','fan_speed','four_zone_mode','per_zone_mode','per_key_mode','usb_logo','lightbar','battery_limiter','backlight_timeout'],
-    'fan_speed': {'cpu': '0','gpu': '0'},'fan_rpm': {'cpu': 2170,'gpu': 1890},'ac_online': True,'battery_limiter': '1','backlight_timeout': '1',
-    'lighting_modes': {'keyboard': list(range(10)),'wasd': [0,1,2,3,7],'logo': [0,1,2,9],'lightbar': [0,1,2,3],'all': [0,1,2]},
-    'lighting_state': {target:{'mode': 0,'color': '5bbfbd','brightness': 80,'speed': 5,'direction': 1,'link_wasd': True} for target in ('keyboard','wasd','logo','lightbar')}}
+def fan(percent: int) -> JSON:
+    """Fan state as the service reports it for a set_fan_speed percentage."""
+    return {'mode': 'auto' if percent==0 else 'max' if percent==100 else 'manual','percent': percent}
 
 
 class PreviewClient:
-    def __init__(self) -> None: self.state=copy.deepcopy(STATE); self.commands=[]
-    def command(self, command: str, params: JsonDict | None = None) -> JsonDict:
+    """Answers service commands from in-memory preview state and records every command it receives."""
+    def __init__(self) -> None:
+        self.commands: list[tuple[str, dict[str, JSON]]]=[]
+        self.profile='balanced'
+        self.fans: dict[str, JSON]={'cpu': fan(0),'gpu': fan(0)}
+        self.switches: dict[str, JSON]={'battery_limiter': True,'backlight_timeout': True}
+        self.lighting: dict[str, JSON]={target:{'mode': 0,'color': '5bbfbd','brightness': 80,'speed': 5,'direction': 1,'link_wasd': True}
+                                        for target in ('keyboard','wasd','logo','lightbar')}
+
+    def settings(self) -> JSON:
+        state: dict[str, JSON]={'version': '0.8.0','driver_version': 'Stock acer_wmi + USB HID','laptop_type': 'Predator PH16-72',
+            'thermal_profile': {'current': self.profile,'available': ['low-power','quiet','balanced','balanced-performance','performance']},
+            'available_features': ['thermal_profile','fan_speed','four_zone_mode','per_zone_mode','per_key_mode','usb_logo','lightbar','battery_limiter','backlight_timeout'],
+            'fans': self.fans,'fan_rpm': {'cpu': 2170,'gpu': 1890},'ac_online': True,**self.switches,
+            'lighting_modes': {'keyboard': list(range(10)),'wasd': [0,1,2,3,7],'logo': [0,1,2,9],'lightbar': [0,1,2,3],'all': [0,1,2]},
+            'lighting_state': self.lighting}
+        return copy.deepcopy(state)
+
+    def command(self, command: str, params: dict[str, JSON] | None=None) -> JSON:
         params=params or {}
         self.commands.append((command,copy.deepcopy(params)))
         if command=='get_keyboard_layout': return layout()
-        if command=='set_thermal_profile': self.state['thermal_profile']['current']=params['profile']
-        elif command=='set_lighting': self.state['lighting_state'][params['target']]=dict(params)
-        elif command=='set_per_zone_mode': self.state['lighting_state']['keyboard']={'kind': 'zones','colors': [params[f'zone{i}'] for i in range(1,5)]}
-        elif command=='set_per_key': self.state['lighting_state']['per_key']=copy.deepcopy(params)
-        elif command=='set_fan_speed': self.state['fan_speed']={k:str(params[k]) for k in ('cpu','gpu')}
-        elif command.startswith('set_') and 'enabled' in params: self.state[command[4:]]='1' if params['enabled'] else '0'
-        return copy.deepcopy(self.state)
+        if command=='set_thermal_profile': self.profile=str(params['profile'])
+        elif command=='set_lighting': self.lighting[str(params['target'])]=dict(params)
+        elif command=='set_per_zone_mode': self.lighting['keyboard']={'kind': 'zones','colors': [params[f'zone{i}'] for i in range(1,5)]}
+        elif command=='set_per_key': self.lighting['per_key']=copy.deepcopy(params)
+        elif command=='set_fan_speed': self.fans={key:fan(percent if isinstance(percent:=params[key],int) else 0) for key in ('cpu','gpu')}
+        elif command.startswith('set_') and 'enabled' in params: self.switches[command[4:]]=params['enabled'] is True
+        return self.settings()
+
     def close(self) -> None: pass
 
 
