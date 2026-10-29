@@ -26,6 +26,7 @@ This file is the single source for working rules; other docs link here instead o
 
 - `hardware/` or `native-lightbar/`: [NATIVE-CONTROLS.md](NATIVE-CONTROLS.md).
 - Install, package, or socket code: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Any code: [CODING.md](CODING.md).
 - New dependency, borrowed code, or renamed module: [NOTICE.md](NOTICE.md).
 - User-visible behavior: [README.md](README.md) and [FAQ.md](FAQ.md), and update them.
 
@@ -40,12 +41,9 @@ Hardware:
 - On any fan write failure or service stop, return fans to automatic.
 - Save lighting state only after the command succeeds.
 - A command the device accepted is not proof of a visible result; say which one you have.
-- No hardware access at import time.
 
 App:
 
-- Never call GTK from a worker thread.
-- Stop every timer when its window closes.
 - Reading or refreshing state must never write controls or reset a device's unsaved draft.
 - GPU monitoring stays off until the user turns it on, and pauses on hidden pages and minimized windows.
 - The GUI and session actions run as the desktop user; only the daemon is root.
@@ -54,10 +52,8 @@ App:
 - Performance profiles and fan modes use large icon tiles.
 - Credits are rendered from `NOTICE.md`; do not copy credits elsewhere or generate HTML.
 
-Code:
+Licensing:
 
-- Python passes `ruff check .`, whose `ANN` rules require type hints on every function.
-- Use precise types, not `typing.Any`, casts, or `# type: ignore`; ruff checks that hints exist, not that they are correct.
 - Names from earlier projects belong only in attribution and `scripts/legacy-install.sh`.
 - Keep original license headers when renaming or moving modules.
 - The kernel module stays separate from the GPLv3 app and limited to PH16-72.

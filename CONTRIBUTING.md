@@ -1,6 +1,6 @@
 # Development
 
-Working rules, the source map, and `scripts/check.sh` are described in [AGENTS.md](AGENTS.md); they apply to people too.
+Working rules, the source map, and `scripts/check.sh` are described in [AGENTS.md](AGENTS.md), and code rules in [CODING.md](CODING.md); they apply to people too.
 
 ## Running from source
 
