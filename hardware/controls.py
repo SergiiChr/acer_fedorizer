@@ -210,11 +210,8 @@ class NativeControls:
         self.root = Path(sys_root)
         self.state_file = Path(state_file)
         self.lock = threading.RLock()
-        self.profile_dir: Path | None = None
-        for p in sorted((self.root / 'class/platform-profile').glob('*')):
-            if read(p / 'name') == 'acer-wmi':
-                self.profile_dir = p
-                break
+        self.profile_dir = next((p for p in sorted((self.root / 'class/platform-profile').glob('*'))
+                                 if read(p / 'name') == 'acer-wmi'), None)
         self.hwmon = next((p for p in sorted((self.root / 'class/hwmon').glob('*'))
                            if read(p / 'name') == 'acer' and (p / 'fan1_input').exists()), None)
         self.static_features: set[str] = set()

@@ -315,9 +315,6 @@ class CoverLogo:
                 return cls('/dev/' + h.name)
         return None
 
-    def color(self, rgb: RGB, brightness: int) -> None:
-        self.effect(0, rgb, 5, brightness)
-
     def effect(self, mode: int, rgb: RGB, speed: int, brightness: int, direction: int = 1) -> None:
         if mode not in self.EFFECTS:
             raise ValueError('Unsupported logo effect')
