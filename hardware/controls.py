@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal, Required, TypedDict
 
 from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, _scale_rgb
 
@@ -19,6 +20,45 @@ VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
 log = logging.getLogger('fedorizer')
 JsonObject = dict[str, object]
+Switch = Literal['backlight_timeout', 'battery_calibration', 'battery_limiter', 'boot_animation_sound', 'lcd_override']
+SWITCHES: tuple[Switch, ...] = ('backlight_timeout', 'battery_calibration', 'battery_limiter',
+                                'boot_animation_sound', 'lcd_override')
+
+
+class FanState(TypedDict):
+    mode: Literal['auto', 'max', 'manual']
+    percent: int
+
+
+class ThermalProfile(TypedDict):
+    current: str
+    available: list[str]
+
+
+class KeyboardLayout(TypedDict):
+    width: int
+    height: int
+    lamps: list[Lamp]
+
+
+class Settings(TypedDict, total=False):
+    """The get_all_settings reply, also returned by every set_* command; optional keys exist only with their hardware."""
+    version: Required[str]
+    driver_version: Required[str]
+    laptop_type: Required[str]
+    available_features: Required[list[str]]
+    ac_online: Required[bool | None]
+    thermal_profile: Required[ThermalProfile]
+    fan_rpm: Required[dict[str, int | None]]
+    lighting_modes: Required[dict[str, list[int]]]
+    lighting_state: Required[JsonObject]
+    fans: dict[str, FanState]
+    backlight_timeout: bool
+    battery_calibration: bool
+    battery_limiter: bool
+    boot_animation_sound: bool
+    lcd_override: bool
+    usb_charging: int
 
 
 def read(path: Path, default: str = '') -> str:
@@ -33,7 +73,7 @@ def decimal(value: str) -> int | None:
     return int(value) if value.isascii() and value.isdecimal() else None
 
 
-def fan_state(enable: str, pwm: str) -> JsonObject:
+def fan_state(enable: str, pwm: str) -> FanState:
     """Describe a fan from its hwmon pwmN_enable and pwmN values: firmware auto, full speed, or a manual percent."""
     match enable:
         case '0':
@@ -242,8 +282,7 @@ class NativeControls:
             self.static_features.add('lightbar')
         self.extra_files: dict[str, Path] = {}
         # Only expose stock kernel attributes that actually exist.
-        for key in ('backlight_timeout', 'battery_calibration', 'battery_limiter',
-                    'boot_animation_sound', 'lcd_override', 'usb_charging'):
+        for key in (*SWITCHES, 'usb_charging'):
             p = self.root / 'devices/platform/acer-wmi' / key
             if p.exists():
                 self.extra_files[key] = p
@@ -294,13 +333,13 @@ class NativeControls:
         mains = [p for p in supplies if read(p / 'type') in ('Mains', 'USB', 'USB_C') and (p / 'online').exists()]
         return any(read(p / 'online') == '1' for p in mains) if mains else None
 
-    def settings(self) -> JsonObject:
+    def settings(self) -> Settings:
         with self.lock:
             profile = read(self.profile_dir / 'profile') if self.profile_dir else ''
             choices = read(self.profile_dir / 'choices').split() if self.profile_dir else []
             rpm = {name: decimal(read(self.hwmon / f'fan{i}_input')) if self.hwmon else None
                    for i, name in ((1, 'cpu'), (2, 'gpu'))}
-            out: JsonObject = {
+            out: Settings = {
                 'version': VERSION, 'driver_version': 'Stock Linux acer_wmi + HID',
                 'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
                 'available_features': sorted(self.features), 'ac_online': self.ac_online(),
@@ -309,9 +348,11 @@ class NativeControls:
             if self.hwmon:
                 out['fans'] = {name: fan_state(read(self.hwmon / f'pwm{i}_enable'), read(self.hwmon / f'pwm{i}', '0'))
                                for i, name in ((1, 'cpu'), (2, 'gpu'))}
-            for k, p in self.extra_files.items():
-                value = read(p)
-                out[k] = (decimal(value) or 0) if k == 'usb_charging' else value == '1'
+            for key in SWITCHES:
+                if key in self.extra_files:
+                    out[key] = read(self.extra_files[key]) == '1'
+            if 'usb_charging' in self.extra_files:
+                out['usb_charging'] = decimal(read(self.extra_files['usb_charging'])) or 0
             if self.threshold:
                 out['battery_limiter'] = int(read(self.threshold, '100')) <= 80
             return out
@@ -430,7 +471,7 @@ class NativeControls:
             modes['all'] = sorted(set.intersection(*(set(values) for values in modes.values())))
         return modes
 
-    def keyboard_layout(self) -> JsonObject:
+    def keyboard_layout(self) -> KeyboardLayout:
         if not self.keyboard:
             raise ValueError('Per-key keyboard control unavailable')
         with self.keyboard.open() as kb:
@@ -504,7 +545,7 @@ class NativeControls:
             case Effect() if entry.mode in self.lighting_modes().get(target, []):
                 self._apply(target, entry)
 
-    def command(self, name: str, p: Mapping[str, object]) -> JsonObject:
+    def command(self, name: str, p: Mapping[str, object]) -> Mapping[str, object]:
         with self.lock:
             if name == 'ping':
                 return {'version': VERSION}

@@ -5,6 +5,7 @@ import logging
 import os
 import pwd
 import select
+import socket
 import struct
 import subprocess
 import threading
@@ -57,7 +58,7 @@ def launch(uid: int) -> None:
 def monitor(uid: int) -> None:
     # Input devices are rescanned only when the kernel reports an input hotplug event.
     hotplug = uevents.open_socket()
-    handles = {}
+    handles: dict[Path, tuple[int, bool]] = {}
     last_press = 0.0
     rescan = True
     while True:
@@ -73,7 +74,8 @@ def monitor(uid: int) -> None:
                         log.info('Listening for Predator button on %s', path)
                     except OSError:
                         pass
-        ready, _, _ = select.select([hotplug, *(fd for fd, _ in handles.values())], [], [])
+        watched: list[socket.socket | int] = [hotplug, *(fd for fd, _ in handles.values())]
+        ready, _, _ = select.select(watched, [], [])
         rescan = hotplug in ready and uevents.changed(hotplug, {'input'})
         for path, (fd, vendor) in list(handles.items()):
             if fd not in ready:
