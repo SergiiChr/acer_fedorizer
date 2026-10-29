@@ -16,7 +16,9 @@ def save_window(window: Gtk.Window, path: str | Path) -> None:
     paintable.snapshot(snapshot,window.get_width(),window.get_height())
     node=snapshot.to_node()
     if node is None: raise RuntimeError('Window has not been rendered')
-    texture=window.get_renderer().render_texture(node,None)
+    renderer=window.get_renderer()
+    if renderer is None: raise RuntimeError('Window has no renderer')
+    texture=renderer.render_texture(node,None)
     if not texture.save_to_png(str(path)): raise RuntimeError('Unable to save screenshot')
 
 
@@ -43,7 +45,7 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
         elif name=='credits': target=app.window.show_credits()
         else: app.window.show_page(name); target=app.window
         if target: invalidate(target)
-        def capture():
+        def capture() -> bool:
             try:
                 if target is None: raise RuntimeError('Keyboard layout is not loaded')
                 save_window(target,directory/(name+'.png'))

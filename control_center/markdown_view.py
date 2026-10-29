@@ -15,8 +15,6 @@ if TYPE_CHECKING:
     from gi.repository import Gtk
 
 INLINE=re.compile(r'(`[^`]+`|\*\*.+?\*\*|\[[^\]]+\]\([^\s]+\)|https?://[^\s<>]+|\*[^*]+\*)')
-# (kind, level, text) for headings, (kind, rows) for tables, (kind, text) for bullets and paragraphs.
-Block = tuple[str, int, str] | tuple[str, list[list[str]]] | tuple[str, str]
 
 
 @dataclass(frozen=True)

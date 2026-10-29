@@ -14,6 +14,7 @@ This file is the single source for working rules; other docs link here instead o
   - `display.py`: Mutter session-bus bridge.
   - `installation.py`: read-only install checks shared by the GUI and `setup.sh status`.
   - `markdown_view.py`: renders credits from `NOTICE.md`.
+  - `services.py`: the window's data sources; live ones reach the daemon and session, `preview.py` supplies the preview ones.
   - `preview.py`: fake data for `--preview`, screenshots, and UI tests.
 - `hardware/`: root daemon using only the Python standard library; stock sysfs and direct HID controls.
 - `native-lightbar/`: separate GPLv2 kernel module, limited to the PH16-72 DMI.

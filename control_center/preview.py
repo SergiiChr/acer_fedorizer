@@ -2,9 +2,13 @@
 """Explicit deterministic preview data. Never connects to hardware or session D-Bus."""
 import copy
 import json
+import math
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from .client import JSON
+from .display import PanelStatus
 from .installation import CHECKS, Check, Report
 from .telemetry import Battery, Gpu, Sample
 
@@ -71,3 +75,33 @@ def installation_status() -> Report:
                                 'Enabled.' if key=='enabled' else 'Loaded.' if key=='module' else
                                 'Installed for the running kernel.' if key=='dkms' else 'Available.' if key=='socket' else 'Installed.')
                           for key,title in CHECKS])
+
+
+class PreviewServices:
+    """Preview data for every window data source; the display toggle only changes this in-memory state."""
+    preview = True
+    check_installation_on_start = True
+    cpu_history = tuple(25+8*math.sin(i*.18)+3*math.sin(i*.7) for i in range(60))
+
+    def __init__(self) -> None:
+        self.client = PreviewClient()
+        self.panel = PanelStatus(True, False, 'eDP-1', 'default', 'Built-in display · Native SDR supported')
+
+    def installation_status(self) -> Report:
+        return installation_status()
+
+    def display_status(self) -> PanelStatus:
+        return self.panel
+
+    def set_display(self, connector: str, enabled: bool) -> PanelStatus:
+        self.panel = replace(self.panel, enabled=enabled, mode='sdr-native' if enabled else 'default')
+        return self.panel
+
+    def watch_display(self, callback: Callable[[], None]) -> None:
+        pass
+
+    def sample(self, gpu: bool) -> Sample:
+        return sample(gpu)
+
+    def battery(self) -> Battery | None:
+        return BATTERY

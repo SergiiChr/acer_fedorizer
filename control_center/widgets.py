@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import itertools
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import cairo
 import gi
@@ -10,6 +10,7 @@ gi.require_version('Gtk','4.0')
 from gi.repository import Gdk, Gtk, Pango, PangoCairo
 
 from .keyboard import keycaps
+from .models import Lamp
 
 
 def label(text: str = '', css: str | None = None, xalign: float = 0) -> Gtk.Label:
@@ -41,11 +42,12 @@ class ModeTiles(Gtk.FlowBox):
                          min_children_per_line=1,max_children_per_line=5,
                          row_spacing=10,column_spacing=10)
         self.add_css_class('mode-selector')
-        self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
+        self.buttons: list[Gtk.ToggleButton]=[]; self.checks: list[Gtk.Image]=[]
+        self.selected=Gtk.INVALID_LIST_POSITION; self.changed=changed
         self.set_choices(choices)
 
     def set_choices(self, choices: Sequence[tuple[str, str]]) -> None:
-        while self.get_first_child(): self.remove(self.get_first_child())
+        while child:=self.get_first_child(): self.remove(child)
         self.buttons=[]; self.checks=[]; self.selected=Gtk.INVALID_LIST_POSITION
         for index,(title,icon) in enumerate(choices):
             tile=Gtk.ToggleButton(hexpand=True)
@@ -85,13 +87,13 @@ class ModeTiles(Gtk.FlowBox):
 class HistoryChart(Gtk.DrawingArea):
     def __init__(self, color: tuple[float, float, float] = (.36,.75,.74), height: int = 90) -> None:
         super().__init__(content_height=height,hexpand=True)
-        self.values=[]
+        self.values: list[float | None]=[]
         self.color=color
         self.set_draw_func(self.draw)
     def sample(self, value: float | None) -> None:
         self.values=[*self.values,value][-60:]
         self.queue_draw()
-    def draw(self, _: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
+    def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
         cr.set_source_rgba(.55,.6,.65,.12)
         cr.set_line_width(1)
         for y in (height*.25,height*.5,height*.75):
@@ -122,22 +124,36 @@ USAGES.update({58+i:'F'+str(i+1) for i in range(12)})
 
 
 class KeyboardCanvas(Gtk.DrawingArea):
-    def __init__(self, height: int = 220, selectable: bool = False) -> None:
+    """Keyboard preview drawn from HID lamp geometry; keys are clickable when on_selection is given."""
+    def __init__(self, height: int = 220, on_selection: Callable[[int], None] | None = None) -> None:
         super().__init__(content_height=height,hexpand=True)
-        self.lamps=[]; self.caps=[]; self.colors={}; self.selected=set(); self.rects=[]; self.on_selection=None
+        self.caps: list[tuple[Lamp, float, float, float, float]]=[]; self.colors: dict[str, str]={}
+        self._selected: set[int]=set(); self.rects: list[tuple[float, float, float, float, int]]=[]
+        self.on_selection=on_selection
         self.set_draw_func(self.draw)
-        if selectable:
+        if on_selection:
             click=Gtk.GestureClick()
             click.connect('pressed',self.clicked)
             self.add_controller(click)
             self.set_tooltip_text('Click keys to select them. LED geometry comes from the keyboard.')
-    def set_layout(self, lamps: list[dict[str, object]], colors: dict[str, str] | None = None) -> None:
-        self.lamps=lamps
+    @property
+    def selected(self) -> frozenset[int]:
+        return frozenset(self._selected)
+    def set_layout(self, lamps: list[Lamp], colors: dict[str, str]) -> None:
         # Keycap geometry depends only on the lamps, so it is computed once rather than on every redraw.
         self.caps=keycaps(lamps)
-        self.colors=colors or {}
+        self.set_colors(colors)
+    def set_colors(self, colors: dict[str, str]) -> None:
+        self.colors=colors
         self.queue_draw()
-    def draw(self, _: Gtk.DrawingArea, cr: cairo.Context, width: int, height: int) -> None:
+    def select(self, ids: Iterable[int]) -> None:
+        """Replace the selection and report its size to on_selection."""
+        self._selected=set(ids)
+        self.queue_draw()
+        if self.on_selection: self.on_selection(len(self._selected))
+    def clear_selection(self) -> None:
+        self.select(())
+    def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
         self.rects=[]
         if not self.caps:
             cr.set_source_rgba(.6,.65,.7,.8); cr.set_font_size(13)
@@ -152,19 +168,19 @@ class KeyboardCanvas(Gtk.DrawingArea):
         cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
         layout=PangoCairo.create_layout(cr)
         for lamp,kx,ky,kw,kh in caps:
-            lid=lamp.id; selected=lid in self.selected
+            lid=lamp.id; selected=lid in self._selected
             x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
             w=kw*scale; h=kh*scale
             self.rects.append((x,y,w,h,lid))
             color=self.colors.get(str(lid),'4f9c9c')
-            rgb=tuple(int(color[i:i+2],16)/255 for i in (0,2,4))
+            r,g,b=(int(color[i:i+2],16)/255 for i in (0,2,4))
             self.rounded(cr,x,y+2,w,h,4)
             cr.set_source_rgba(0,0,0,.65); cr.fill()
             self.rounded(cr,x,y,w,h,4)
             cr.set_source_rgb(.12,.14,.16); cr.fill()
             self.rounded(cr,x,y,w,h,4)
-            cr.set_source_rgba(*rgb,.35 if selected else .13); cr.fill_preserve()
-            cr.set_source_rgba(*rgb,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
+            cr.set_source_rgba(r,g,b,.35 if selected else .13); cr.fill_preserve()
+            cr.set_source_rgba(r,g,b,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
             text=USAGES.get(lamp.key_usage,'LED '+str(lid))
             layout.set_text(text,-1)
             layout.set_font_description(Pango.FontDescription.from_string('Sans '+str(min(9,max(5.5,w/max(1,len(text))*1.1)))))
@@ -172,7 +188,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
             cr.set_source_rgba(.88,.93,.94,.95)
             cr.move_to(x+(w-tw)/2,y+(h-th)/2); PangoCairo.show_layout(cr,layout)
     @staticmethod
-    def rounded(cr: cairo.Context, x: float, y: float, w: float, h: float, r: float) -> None:
+    def rounded(cr: 'cairo.Context[cairo.Surface]', x: float, y: float, w: float, h: float, r: float) -> None:
         cr.new_sub_path()
         for cx,cy,a,b in ((x+w-r,y+r,-90,0),(x+w-r,y+h-r,0,90),(x+r,y+h-r,90,180),(x+r,y+r,180,270)):
             cr.arc(cx,cy,r,math.radians(a),math.radians(b))
@@ -180,7 +196,5 @@ class KeyboardCanvas(Gtk.DrawingArea):
     def clicked(self, _: Gtk.GestureClick, count: int, x: float, y: float) -> None:
         for left,top,width,height,lid in self.rects:
             if left<=x<=left+width and top<=y<=top+height:
-                self.selected.symmetric_difference_update({lid})
-                self.queue_draw()
-                if self.on_selection: self.on_selection(len(self.selected))
+                self.select(self._selected^{lid})
                 break

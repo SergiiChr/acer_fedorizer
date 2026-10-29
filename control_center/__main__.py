@@ -12,7 +12,10 @@ def main() -> int:
         from .app import Application
     except (ImportError,ValueError) as error:
         parser.exit(1,f'GTK4/libadwaita dependencies are unavailable: {error}\nRun ./setup.sh install.\n')
-    app=Application(args.preview or bool(args.screenshots),args.screenshots)
+    from .preview import PreviewServices
+    from .services import LiveServices, Services
+    services: Services=PreviewServices() if args.preview or args.screenshots else LiveServices()
+    app=Application(services,args.screenshots)
     result=app.run([sys.argv[0]])
     return result or int(bool(app.capture_error))
 
