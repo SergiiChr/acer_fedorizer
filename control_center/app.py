@@ -92,11 +92,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.build()
         self.connect('realize',lambda *_: self.get_surface().connect('notify::state',self.surface_changed))
         if demo:
-            self.receive_state(Settings.parse(self.client.command('get_all_settings')),None)
+            self.receive_state(Settings.parse(self.client.command('get_all_settings')))
             sample=preview.sample()
             self.receive_sample(sample); self.receive_battery(sample.battery)
             self.set_layout(parse_lamps(preview.layout()))
-            self.receive_installation_status(preview.installation_status(),None)
+            self.receive_installation_status(preview.installation_status())
             self.receive_display(display.PanelStatus(True,False,'eDP-1','default','Built-in display · Native SDR supported'))
             for i in range(60):
                 self.cpu_chart.sample(25+8*math.sin(i*.18)+3*math.sin(i*.7))
@@ -383,19 +383,22 @@ class MainWindow(Adw.ApplicationWindow):
         self.status_pending=True
         self.status_button.set_sensitive(False); self.status_spinner.start()
         self.status_group.set_description('Checking installation…')
-        self.async_call(preview.installation_status if self.demo else installation.collect_status,self.receive_installation_status)
+        self.async_call(preview.installation_status if self.demo else installation.collect_status,
+                        self.receive_installation_status,self.installation_failed)
 
-    def receive_installation_status(self, report: JsonDict | None, error: str | None) -> None:
+    def installation_failed(self,error):
         self.status_pending=False
         self.status_button.set_sensitive(True); self.status_spinner.stop()
-        if error:
-            self.status_group.set_description('Status check failed: '+error)
-            for row,indicator in self.status_rows.values():
-                row.set_subtitle('Not checked · status could not be refreshed')
-                indicator.set_from_icon_name('checkbox-mixed-symbolic')
-                for css in ('success','error'): indicator.remove_css_class(css)
-                indicator.add_css_class('dim-label')
-            return
+        self.status_group.set_description('Status check failed: '+error)
+        for row,indicator in self.status_rows.values():
+            row.set_subtitle('Not checked · status could not be refreshed')
+            indicator.set_from_icon_name('checkbox-mixed-symbolic')
+            for css in ('success','error'): indicator.remove_css_class(css)
+            indicator.add_css_class('dim-label')
+
+    def receive_installation_status(self,report):
+        self.status_pending=False
+        self.status_button.set_sensitive(True); self.status_spinner.stop()
         visible={check.key for check in report.checks}
         for key,(row,_) in self.status_rows.items(): row.set_visible(key in visible)
         for check in report.checks:
@@ -409,40 +412,46 @@ class MainWindow(Adw.ApplicationWindow):
         timestamp='10:30:00' if self.demo else GLib.DateTime.new_now_local().format('%H:%M:%S')
         self.status_group.set_description(summary+' · Checked '+timestamp+(' · Preview data' if self.demo else ''))
 
-    def async_call[T](self, function: Callable[[], T], callback: Callable[[T | None, str | None], None]) -> None:
+    def async_call[T](self, function: Callable[[], T], done: Callable[[T], None], failed: Callable[[str], None]) -> None:
+        """Run function on a worker; done(result) or failed(message) then runs on the main loop unless the window closed."""
         def work() -> None:
-            try: result,error=function(),None
+            try: result=function()
             # Worker boundary: any failure is reported in the window instead of ending the thread.
-            except Exception as exc: result,error=None,str(exc)  # noqa: BLE001
-            def deliver() -> bool:
-                if not self.closed: callback(result,error)
-                return False
-            GLib.idle_add(deliver)
+            except Exception as exc:  # noqa: BLE001
+                message=str(exc)
+                GLib.idle_add(self.deliver,lambda:failed(message)); return
+            GLib.idle_add(self.deliver,lambda:done(result))
         self.workers.submit(work)
 
-    def refresh(self) -> bool:
+    def deliver(self, callback: Callable[[], None]) -> bool:
+        if not self.closed: callback()
+        return GLib.SOURCE_REMOVE
+
+    def refresh(self):
         if self.closed: return False
         if self.polling or self.pending or not self.on_screen(): return True
         if self.demo:
-            self.receive_state(Settings.parse(self.client.command('get_all_settings')),None)
+            self.receive_state(Settings.parse(self.client.command('get_all_settings')))
             self.receive_sample(preview.sample(self.gpu_enabled))
             return True
         self.polling=True
         overview=self.stack.get_visible_child_name()=='overview'
         gpu=self.gpu_enabled and overview
         def work():
-            try: state,error=Settings.parse(self.client.command('get_all_settings')),None
-            except (OSError,ValueError,RuntimeError) as exc: state,error=None,str(exc)
+            try: state=Settings.parse(self.client.command('get_all_settings'))
+            except (OSError,ValueError,RuntimeError): state=None
             sample=self.telemetry.sample(gpu) if overview else None
-            return state,error,sample,sample.battery if sample else self.telemetry.battery()
-        def received(result,error):
+            return state,sample,sample.battery if sample else self.telemetry.battery()
+        def received(result):
             self.polling=False
-            if error: self.receive_state(None,error); return
-            state,error,sample,battery=result
-            self.receive_state(state,error)
+            state,sample,battery=result
+            self.receive_state(state)
             if sample: self.receive_sample(sample)
             self.receive_battery(battery)
-        self.async_call(work,received)
+        def failed(_):
+            self.polling=False
+            self.receive_state(None)
+        self.async_call(work,received,failed)
         return True
 
     def on_screen(self) -> bool:
@@ -467,7 +476,7 @@ class MainWindow(Adw.ApplicationWindow):
         for widget in (self.charge_limit,self.calibration,self.extras): widget.set_sensitive(ready)
         if self.editor: self.editor.apply.set_sensitive(ready)
 
-    def receive_state(self, state: JsonDict | None, error: str | None) -> None:
+    def receive_state(self,state):
         self.connected=state is not None
         self.banner.set_revealed(not self.connected)
         self.connection_label.set_text('Preview · no hardware access' if self.demo else 'Hardware service connected' if self.connected else 'Hardware service unavailable')
@@ -561,26 +570,31 @@ class MainWindow(Adw.ApplicationWindow):
             self.vram.set_fraction(0); self.vram.set_text('VRAM · monitoring paused')
         self.refresh()
 
-    def mutate(self, command: str, params: JsonDict, callback: Callable[[object, str | None], None] | None = None) -> None:
-        """Apply one change at a time; callback(result, error) runs after the shared handling."""
+    def mutate(self,command,params,applied=None,failed=None):
+        """Apply one change at a time; applied() or failed(message) runs after the shared handling."""
         if self.pending: return
         self.pending=True
         self.update_sensitivity()
-        def done(result: object, error: str | None) -> None:
+        def finish():
             self.pending=False
-            if error: self.toast.add_toast(Adw.Toast(title='Could not apply: '+error,timeout=8))
-            else:
-                self.toast.add_toast(Adw.Toast(title='Settings applied' if not self.demo else 'Preview updated · no hardware changed'))
-                if result: self.receive_state(result,None)
             # Also resets switches that were toggled for a change that failed.
-            self.receive_state(self.state if self.connected else None,None)
-            if callback: callback(result,error)
-            if not self.closed: self.refresh()
+            self.receive_state(self.state if self.connected else None)
+        def done(result):
+            self.toast.add_toast(Adw.Toast(title='Settings applied' if not self.demo else 'Preview updated · no hardware changed'))
+            if result: self.receive_state(result)
+            finish()
+            if applied: applied()
+            self.refresh()
+        def error(message):
+            self.toast.add_toast(Adw.Toast(title='Could not apply: '+message,timeout=8))
+            finish()
+            if failed: failed(message)
+            self.refresh()
         def work():
             # Setting commands reply with the settings they produced.
             reply=self.client.command(command,params)
             return Settings.parse(reply) if isinstance(reply,dict) and 'available_features' in reply else None
-        self.async_call(work,done)
+        self.async_call(work,done,error)
 
     def apply_profile(self, *_: object) -> None:
         index=self.profile_tiles.get_selected()
@@ -662,15 +676,14 @@ class MainWindow(Adw.ApplicationWindow):
         if not target or target not in self.drafts: return
         try: command,params=self.drafts[target].request(target)
         except ValueError as error: self.toast.add_toast(Adw.Toast(title=str(error))); return
-        def applied(_: object, error: str | None) -> None:
-            if error: return
+        def applied():
             self.drafts.pop(target,None)
             # Zones and linked keyboard effects also set WASD; 'all' sets every device.
             if target=='keyboard' and (command=='set_per_zone_mode' or params['link_wasd']): self.drafts.pop('wasd',None)
             if target=='all': self.drafts.clear()
         self.mutate(command,params,applied)
     def load_layout(self):
-        self.async_call(self.read_layout,lambda result,error:self.set_layout(result) if not error else None)
+        self.async_call(self.read_layout,self.set_layout,lambda _:None)
     def read_layout(self):
         return parse_lamps(self.client.command('get_keyboard_layout'))
     def set_layout(self,layout):
@@ -680,11 +693,11 @@ class MainWindow(Adw.ApplicationWindow):
     def open_editor(self,*_):
         """Open the per-key editor and return it, or return None while the keyboard layout is still loading."""
         if not self.layout:
-            self.async_call(self.read_layout,self.editor_layout)
+            self.async_call(self.read_layout,self.editor_layout,
+                            lambda error:self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)))
             return None
-        return self.editor_layout(self.layout,None)
-    def editor_layout(self,layout,error):
-        if error: self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)); return None
+        return self.editor_layout(self.layout)
+    def editor_layout(self,layout):
         self.set_layout(layout)
         self.editor=KeyEditor(self,layout)
         self.update_sensitivity()
@@ -696,11 +709,14 @@ class MainWindow(Adw.ApplicationWindow):
         if self.demo:
             self.receive_display(self.display_state); return
         self.display_pending=True
-        def done(result: JsonDict | None, error: str | None) -> None:
+        def done(result):
             self.display_pending=False
-            self.receive_display(result or display.PanelStatus(message=error or 'Unavailable'))
-        self.async_call(lambda:display.run('status'),done)
-    def receive_display(self, state: JsonDict) -> None:
+            self.receive_display(result)
+        def failed(error):
+            self.display_pending=False
+            self.receive_display(display.PanelStatus(message=error or 'Unavailable'))
+        self.async_call(lambda:display.run('status'),done,failed)
+    def receive_display(self,state):
         self.display_state=state
         self.updating=True
         self.display_switch.set_active(state.enabled)
@@ -716,13 +732,14 @@ class MainWindow(Adw.ApplicationWindow):
             self.receive_display(dataclasses.replace(self.display_state,enabled=enabled,mode='sdr-native' if enabled else 'default')); return
         row.set_sensitive(False)
         self.display_pending=True
-        def done(result: JsonDict | None, error: str | None) -> None:
+        def done(result):
             self.display_pending=False
-            if error:
-                self.toast.add_toast(Adw.Toast(title='Display change failed: '+error,timeout=8))
-                self.refresh_display()
-            else: self.receive_display(result)
-        self.async_call(lambda:display.run('enable' if enabled else 'disable',self.display_state.connector),done)
+            self.receive_display(result)
+        def failed(error):
+            self.display_pending=False
+            self.toast.add_toast(Adw.Toast(title='Display change failed: '+error,timeout=8))
+            self.refresh_display()
+        self.async_call(lambda:display.run('enable' if enabled else 'disable',self.display_state.connector),done,failed)
 
     def show_credits(self) -> None:
         window=Adw.Window(title='Licenses and credits',transient_for=self,modal=True,default_width=760,default_height=660)
@@ -788,10 +805,10 @@ class KeyEditor(Adw.Window):
     def submit(self, *_: object) -> None:
         colors=copy.deepcopy(self.colors)
         params={'colors':colors,'brightness':round(self.brightness.get_value())}
-        def done(_: object, error: str | None) -> None:
-            self.result.set_text('Could not apply: '+error if error else 'Preview updated · no hardware changed' if self.parent.demo else 'Static layout applied. Confirm the visible result on your keyboard.')
-            if not error: self.parent.keyboard_canvas.set_layout(self.parent.layout,colors)
-        self.parent.mutate('set_per_key',params,done)
+        def applied():
+            self.result.set_text('Preview updated · no hardware changed' if self.parent.demo else 'Static layout applied. Confirm the visible result on your keyboard.')
+            self.parent.keyboard_canvas.set_layout(self.parent.layout,colors)
+        self.parent.mutate('set_per_key',params,applied,lambda error:self.result.set_text('Could not apply: '+error))
 
 
 class Application(Adw.Application):
