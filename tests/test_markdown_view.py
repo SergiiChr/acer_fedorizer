@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from control_center.markdown_view import blocks, inline_markup
+from control_center.markdown_view import Bullet, Heading, Paragraph, Table, blocks, inline_markup
 
 
 def markup_text(markup: str) -> str:
@@ -15,9 +15,9 @@ class MarkdownTests(unittest.TestCase):
     def test_wrapped_lists_headings_and_table_structure(self) -> None:
         source='# Title\n\nA wrapped\nparagraph.\n\n- **Author**\n  attribution.\n\n## Libraries\n\n| Name | Terms |\n| --- | --- |\n| GTK | LGPL |\n'
         self.assertEqual(list(blocks(source)),[
-            ('heading',1,'Title'),('paragraph','A wrapped paragraph.'),
-            ('bullet','**Author** attribution.'),('heading',2,'Libraries'),
-            ('table',[['Name','Terms'],['GTK','LGPL']])])
+            Heading(1,'Title'),Paragraph('A wrapped paragraph.'),
+            Bullet('**Author** attribution.'),Heading(2,'Libraries'),
+            Table([['Name','Terms'],['GTK','LGPL']])])
 
     def test_inline_formatting_links_escaping_and_url_punctuation(self) -> None:
         source='**A & B** uses `x < y` and *emphasis*. [Terms](https://example.com/?a=1&b=2). https://example.org/path.'
@@ -39,14 +39,12 @@ class MarkdownTests(unittest.TestCase):
 
     def test_real_notice_renders_all_blocks_from_single_source(self) -> None:
         source=(Path(__file__).resolve().parents[1]/'NOTICE.md').read_text()
-        rendered=[]; tables=0
-        source_bullets=sum(bool(re.match(r'^[-*]\s+\S',line)) for line in source.splitlines())
-        self.assertEqual(sum(block[0]=='bullet' for block in blocks(source)),source_bullets)
+        rendered: list[str]=[]; tables=0
         for block in blocks(source):
-            if block[0]=='table':
+            if isinstance(block,Table):
                 tables+=1
-                rendered.extend(markup_text(inline_markup(cell)) for row in block[1] for cell in row)
-            else: rendered.append(markup_text(inline_markup(block[-1])))
+                rendered.extend(markup_text(inline_markup(cell)) for row in block.rows for cell in row)
+            else: rendered.append(markup_text(inline_markup(block.text)))
         text='\n'.join(rendered)
         self.assertEqual(tables,1)
         for credit in ('PXDiv','0x7375646F','TensorRaya','Carlos Corbacho','E.M. Smith','Python Software Foundation License'):

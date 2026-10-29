@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Explicit deterministic preview data. Never connects to hardware or session D-Bus."""
 import copy
+import json
+from pathlib import Path
+
+from .installation import CHECKS
 
 from .client import JsonDict
 
 
 def layout() -> JsonDict:
     # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.
-    import json
-    from pathlib import Path
     return json.loads(Path(__file__).with_name('keyboard-preview.json').read_text())
 
 
@@ -43,8 +45,7 @@ def sample(gpu: bool = False) -> JsonDict:
                 'battery': {'capacity': 78,'status': 'Charging','health': 97,'hours': 0.72,'cycles': 126,'manufacturer': 'SMP','model': 'AP21D8M'}}
 
 
-def installation_status() -> JsonDict:
-    from .installation import CHECKS
+def installation_status():
     return {'model': 'Predator PH16-72','kernel': '7.2.11-200.fc44.x86_64','installed': True,'healthy': True,
                 'checks': [{'key': key,'title': title,'ok': True,
                              'detail': 'Running.' if key=='running' else 'Responding.' if key=='ping' else

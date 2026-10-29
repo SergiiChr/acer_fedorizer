@@ -14,7 +14,7 @@ def main() -> int:
         parser.exit(1,f'GTK4/libadwaita dependencies are unavailable: {error}\nRun ./setup.sh install.\n')
     app=Application(args.preview or bool(args.screenshots),args.screenshots)
     result=app.run([sys.argv[0]])
-    return result or int(bool(getattr(app,'capture_error',None)))
+    return result or int(bool(app.capture_error))
 
 
 if __name__=='__main__':

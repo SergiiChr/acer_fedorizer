@@ -1,14 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Unprivileged Mutter session-bus bridge. No gdctl output parsing."""
-import json
-import sys
-from collections.abc import Callable
-from types import ModuleType
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from gi.repository import GLib
-
 DEFAULT = 0
 SDR_NATIVE = 2
 INTERFACE = "org.gnome.Mutter.DisplayConfig"
@@ -146,13 +137,3 @@ def run(action: str, connector: str | None = None) -> PanelStatus:
             raise RuntimeError("Mutter did not report the requested color mode. Refresh to check the display state.")
     return status
 
-
-if __name__ == "__main__":
-    try:
-        action = sys.argv[1] if len(sys.argv) > 1 else "status"
-        if action not in ("status", "enable", "disable"):
-            raise ValueError("Unknown display action.")
-        print(json.dumps(run(action, sys.argv[2] if len(sys.argv) > 2 else None)))
-    except Exception as exc:  # noqa: BLE001 - every failure is reported as JSON status.
-        print(json.dumps({"available": False, "enabled": False, "message": str(exc)}))
-        sys.exit(1)

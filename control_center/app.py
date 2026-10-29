@@ -85,7 +85,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.fan_draft_loaded=False; self.display_watched=False
         self.workers=Workers()
         self.build()
-        self.connect('close-request',self.on_close)
         self.connect('realize',lambda *_: self.get_surface().connect('notify::state',self.surface_changed))
         if demo:
             self.receive_state(self.client.command('get_all_settings'),None)
@@ -98,6 +97,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self.gpu_chart.sample(None)
         else: self.refresh()
         self.timer=GLib.timeout_add_seconds(2,self.refresh)
+        self.connect('close-request',self.on_close)
 
     def build(self) -> None:
         css=Gtk.CssProvider()
@@ -120,7 +120,7 @@ class MainWindow(Adw.ApplicationWindow):
             row=Gtk.ListBoxRow()
             line=box(12,True)
             line.append(Gtk.Image.new_from_icon_name(icon)); line.append(label(title))
-            row.set_child(line); row.page_name=key; nav.append(row); self.nav_rows[key]=row
+            row.set_child(line); nav.append(row); self.nav_rows[key]=row
         nav.connect('row-selected',self.navigate)
         sidebox.append(nav)
         spacer=box(); spacer.set_vexpand(True); sidebox.append(spacer)
@@ -160,15 +160,19 @@ class MainWindow(Adw.ApplicationWindow):
         self.build_overview(); self.build_performance(); self.build_lighting()
         self.build_battery(); self.build_display(); self.build_diagnostics()
         self.nav=nav
-        nav.select_row(self.nav_rows['overview'])
+        self.show_page('overview')
+
+    def show_page(self, name):
+        self.nav.select_row(self.nav_rows[name])
 
     def navigate(self, _: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None: return
-        self.stack.set_visible_child_name(row.page_name)
-        self.window_title.set_title(next(p[1] for p in PAGES if p[0]==row.page_name))
+        name,title,*_=PAGES[row.get_index()]
+        self.stack.set_visible_child_name(name)
+        self.window_title.set_title(title)
         self.split.set_show_content(True)
-        if row.page_name=='lighting' and not self.layout and self.connected: self.load_layout()
-        if row.page_name=='display' and not self.demo:
+        if name=='lighting' and not self.layout and self.connected: self.load_layout()
+        if name=='display' and not self.demo:
             if not self.display_watched:
                 self.display_watched=True
                 display.watch(self.refresh_display)
@@ -364,8 +368,8 @@ class MainWindow(Adw.ApplicationWindow):
         row.add_suffix(button('View notices',lambda *_: self.show_credits(),'flat')); group.add(row); page.append(group)
 
 
-    def open_installation_status(self, *_: object) -> None:
-        self.nav.select_row(self.nav_rows['diagnostics'])
+    def open_installation_status(self,*_):
+        self.show_page('diagnostics')
         self.refresh_installation()
 
     def refresh_installation(self, *_: object) -> None:
@@ -577,8 +581,7 @@ class MainWindow(Adw.ApplicationWindow):
         for slider,speed in zip((self.cpu_slider,self.gpu_slider),speeds,strict=True):
             if 0<speed<100: slider.set_value(speed)
         self.update_fan_sensitivity()
-    def update_fan_sensitivity(self) -> None:
-        if not hasattr(self,'cpu_slider'): return
+    def update_fan_sensitivity(self):
         manual=self.fan_mode.get_selected()==2
         self.cpu_slider.set_sensitive(manual); self.gpu_slider.set_sensitive(manual)
     def apply_fans(self, *_: object) -> None:
@@ -660,16 +663,19 @@ class MainWindow(Adw.ApplicationWindow):
         self.layout=layout
         saved=self.state.get('lighting_state',{}).get('per_key',{}).get('colors',{})
         self.keyboard_canvas.set_layout(layout.get('lamps',[]),full_key_map(layout.get('lamps',[]),saved))
-    def open_editor(self, *_: object) -> None:
+    def open_editor(self,*_):
+        """Open the per-key editor and return it, or return None while the keyboard layout is still loading."""
         if not self.layout:
             self.async_call(lambda:self.client.command('get_keyboard_layout'),self.editor_layout)
-        else: self.editor_layout(self.layout,None)
-    def editor_layout(self, layout: JsonDict | None, error: str | None) -> None:
-        if error: self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)); return
+            return None
+        return self.editor_layout(self.layout,None)
+    def editor_layout(self,layout,error):
+        if error: self.toast.add_toast(Adw.Toast(title='Could not read keyboard layout: '+error)); return None
         self.set_layout(layout)
         self.editor=KeyEditor(self,layout)
         self.update_sensitivity()
         self.editor.present()
+        return self.editor
 
     def refresh_display(self) -> None:
         if self.display_pending: return
@@ -713,12 +719,12 @@ class MainWindow(Adw.ApplicationWindow):
         clamp=Adw.Clamp(maximum_size=860,tightening_threshold=700,child=content)
         scroll=Gtk.ScrolledWindow(child=clamp,hscrollbar_policy=Gtk.PolicyType.NEVER)
         toolbar.set_content(scroll); window.set_content(toolbar)
-        self.credits_window=window
         content.set_focusable(True); window.set_focus(content); window.present()
+        return window
 
     def on_close(self, *_: object) -> bool:
         self.closed=True
-        if hasattr(self,'timer'): GLib.source_remove(self.timer)
+        GLib.source_remove(self.timer)
         # Closing never sends a hardware command. In-flight workers are daemon threads.
         self.workers.submit(self.client.close)
         return False
@@ -776,7 +782,8 @@ class KeyEditor(Adw.Window):
 
 
 class Application(Adw.Application):
-    def __init__(self, demo: bool = False, screenshots: str | None = None) -> None:
+    capture_error=None
+    def __init__(self,demo=False,screenshots=None):
         super().__init__(application_id='io.github.SergiiChr.AcerFedorizer'+('.Preview' if demo else ''),flags=Gio.ApplicationFlags.NON_UNIQUE if demo else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.demo=demo; self.screenshots=screenshots
     def do_activate(self) -> None:

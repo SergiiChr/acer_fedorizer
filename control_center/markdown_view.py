@@ -7,6 +7,7 @@ Source text is escaped before passing it to Pango; raw HTML is never executed.
 import html
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -18,8 +19,32 @@ INLINE=re.compile(r'(`[^`]+`|\*\*.+?\*\*|\[[^\]]+\]\([^\s]+\)|https?://[^\s<>]+|
 Block = tuple[str, int, str] | tuple[str, list[list[str]]] | tuple[str, str]
 
 
+@dataclass(frozen=True)
+class Heading:
+    level: int
+    text: str
+
+
+@dataclass(frozen=True)
+class Table:
+    rows: list[list[str]]
+
+
+@dataclass(frozen=True)
+class Bullet:
+    text: str
+
+
+@dataclass(frozen=True)
+class Paragraph:
+    text: str
+
+
+type Block = Heading | Table | Bullet | Paragraph
+
+
 def inline_markup(text: str) -> str:
-    parts=[]; offset=0
+    parts: list[str]=[]; offset=0
     for match in INLINE.finditer(text):
         parts.append(html.escape(text[offset:match.start()]))
         token=match.group(); offset=match.end()
@@ -55,23 +80,23 @@ def blocks(source: str) -> Iterator[Block]:
             index+=1; continue
         heading=re.match(r'^(#{1,6})\s+(.+)$',line)
         if heading:
-            yield ('heading',len(heading[1]),heading[2]); index+=1; continue
+            yield Heading(len(heading[1]),heading[2]); index+=1; continue
         if line.startswith('|') and index+1<len(lines) and re.fullmatch(r'\s*\|(?:\s*:?-+:?\s*\|)+\s*',lines[index+1]):
             rows=[[cell.strip() for cell in line.strip('|').split('|')]]
             index+=2
             while index<len(lines) and lines[index].strip().startswith('|'):
                 rows.append([cell.strip() for cell in lines[index].strip().strip('|').split('|')]); index+=1
-            yield ('table',rows); continue
+            yield Table(rows); continue
         bullet=re.match(r'^[-*]\s+(.+)$',line)
         content=[bullet[1] if bullet else line]; index+=1
         while index<len(lines):
             following=lines[index].strip()
             if not following or re.match(r'^(#{1,6}\s|[-*]\s|\|)',following): break
             content.append(following); index+=1
-        yield ('bullet' if bullet else 'paragraph',' '.join(content))
+        yield Bullet(' '.join(content)) if bullet else Paragraph(' '.join(content))
 
 
-def markdown_view(source: str) -> "Gtk.Box":
+def markdown_view(source: str) -> 'Gtk.Box':
     # GTK imports are local so formatting/escaping can be tested without a display.
     import gi
     gi.require_version('Gtk','4.0')
@@ -79,7 +104,7 @@ def markdown_view(source: str) -> "Gtk.Box":
 
     from .widgets import box
 
-    def text(value: str, css: str | None = None) -> Gtk.Label:
+    def text(value: str, css: str | None=None) -> Gtk.Label:
         widget=Gtk.Label(xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR,
                          selectable=True,hexpand=True)
         widget.set_markup('<span line_height="1.25">'+inline_markup(value)+'</span>')
@@ -88,23 +113,23 @@ def markdown_view(source: str) -> "Gtk.Box":
 
     content=box(14); content.add_css_class('credits-content')
     for block in blocks(source):
-        kind=block[0]
-        if kind=='heading':
-            content.append(text(block[2],'credits-title' if block[1]==1 else 'credits-heading'))
-        elif kind=='table':
-            grid=Gtk.Grid(column_spacing=18,row_spacing=0,hexpand=True)
-            grid.add_css_class('credits-table')
-            for row,cells in enumerate(block[1]):
-                for col,cell in enumerate(cells):
-                    widget=text(cell,'credits-table-header' if row==0 else 'credits-table-cell')
-                    widget.set_valign(Gtk.Align.START)
-                    if col==0: widget.set_size_request(140,-1); widget.set_hexpand(False)
-                    grid.attach(widget,col,row,1,1)
-            content.append(grid)
-        elif kind=='bullet':
-            row=box(10,True)
-            marker=Gtk.Label(label='•',valign=Gtk.Align.START)
-            marker.add_css_class('credits-bullet'); row.append(marker); row.append(text(block[1]))
-            content.append(row)
-        else: content.append(text(block[1]))
+        match block:
+            case Heading(level,value):
+                content.append(text(value,'credits-title' if level==1 else 'credits-heading'))
+            case Table(rows):
+                grid=Gtk.Grid(column_spacing=18,row_spacing=0,hexpand=True)
+                grid.add_css_class('credits-table')
+                for row,cells in enumerate(rows):
+                    for col,cell in enumerate(cells):
+                        widget=text(cell,'credits-table-header' if row==0 else 'credits-table-cell')
+                        widget.set_valign(Gtk.Align.START)
+                        if col==0: widget.set_size_request(140,-1); widget.set_hexpand(False)
+                        grid.attach(widget,col,row,1,1)
+                content.append(grid)
+            case Bullet(value):
+                line=box(10,True)
+                marker=Gtk.Label(label='•',valign=Gtk.Align.START)
+                marker.add_css_class('credits-bullet'); line.append(marker); line.append(text(value))
+                content.append(line)
+            case Paragraph(value): content.append(text(value))
     return content

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
+import itertools
 import math
 from collections.abc import Callable, Sequence
 
@@ -100,8 +101,9 @@ class HistoryChart(Gtk.DrawingArea):
         values=self.values
         if len(values)==1: values=values*2
         points=[(i*width/max(1,len(values)-1), height-8-(max(0,min(100,v))/100)*(height-16)) if v is not None else None for i,v in enumerate(values)]
-        for segment in self.segments(points):
-            if len(segment)<2: continue
+        for present,group in itertools.groupby(points,key=lambda point:point is not None):
+            segment=[point for point in group if point is not None]
+            if not present or len(segment)<2: continue
             cr.move_to(segment[0][0],height)
             for x,y in segment: cr.line_to(x,y)
             cr.line_to(segment[-1][0],height); cr.close_path()
@@ -109,15 +111,6 @@ class HistoryChart(Gtk.DrawingArea):
             cr.move_to(*segment[0])
             for point in segment[1:]: cr.line_to(*point)
             cr.set_source_rgba(*self.color,.95); cr.set_line_width(2); cr.stroke()
-    @staticmethod
-    def segments(points: list[tuple[float, float] | None]) -> list[list[tuple[float, float]]]:
-        result=[]; segment=[]
-        for point in points:
-            if point is None:
-                if segment: result.append(segment); segment=[]
-            else: segment.append(point)
-        if segment: result.append(segment)
-        return result
 
 
 USAGES={4+i:chr(65+i) for i in range(26)}
@@ -163,9 +156,8 @@ class KeyboardCanvas(Gtk.DrawingArea):
             x=ox+(kx-minx)*scale; y=oy+(ky-miny)*scale
             w=kw*scale; h=kh*scale
             self.rects.append((x,y,w,h,lid))
-            rgb=self.colors.get(str(lid),'4f9c9c')
-            if isinstance(rgb,str): rgb=tuple(int(rgb[i:i+2],16)/255 for i in (0,2,4))
-            else: rgb=tuple(v/255 for v in rgb)
+            color=self.colors.get(str(lid),'4f9c9c')
+            rgb=tuple(int(color[i:i+2],16)/255 for i in (0,2,4))
             self.rounded(cr,x,y+2,w,h,4)
             cr.set_source_rgba(0,0,0,.65); cr.fill()
             self.rounded(cr,x,y,w,h,4)

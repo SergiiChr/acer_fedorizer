@@ -38,13 +38,14 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
             app.window.close(); app.quit(); return False
         name=names[index]
         app.window.set_default_size(1160,1120 if name=='lighting' else 900)
-        if name=='keyboard': app.window.open_editor()
-        elif name=='credits': app.window.show_credits()
-        else: app.window.nav.select_row(app.window.nav_rows[name])
-        target=app.window.editor if name=='keyboard' else app.window.credits_window if name=='credits' else app.window
-        invalidate(target)
-        def capture() -> bool:
+        target: Gtk.Window | None
+        if name=='keyboard': target=app.window.open_editor()
+        elif name=='credits': target=app.window.show_credits()
+        else: app.window.show_page(name); target=app.window
+        if target: invalidate(target)
+        def capture():
             try:
+                if target is None: raise RuntimeError('Keyboard layout is not loaded')
                 save_window(target,directory/(name+'.png'))
                 print(directory/(name+'.png'),flush=True)
                 if name in ('keyboard','credits'): target.close()

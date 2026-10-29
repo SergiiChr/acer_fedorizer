@@ -54,22 +54,22 @@ def checks() -> bool:
             assert sum(b.get_active() for b in window.fan_mode.buttons)==1
             assert window.cpu_slider.get_sensitive()==(index==2)
             assert window.gpu_slider.get_sensitive()==(index==2)
-        window.show_credits()
-        from gi.repository import Gtk
-        def descendants(widget: Gtk.Widget) -> Iterator[Gtk.Widget]:
+        credits_window=window.show_credits()
+        def descendants(widget):
             yield widget
             child=widget.get_first_child()
             while child:
                 yield from descendants(child)
                 child=child.get_next_sibling()
-        credits=[widget for widget in descendants(window.credits_window) if isinstance(widget,Gtk.Label)]
+        from gi.repository import Gtk
+        credits=[widget for widget in descendants(credits_window) if isinstance(widget,Gtk.Label)]
         rendered='\n'.join(widget.get_text() for widget in credits)
         assert 'Licenses, attribution, and distribution' in rendered
         assert 'Div Acer Manager Max — PXDiv and its contributors.' in rendered
         assert 'GNU LGPL 2.1 or later;' in rendered,'License table missing'
         assert '**' not in rendered and '[OpenRGB issue' not in rendered,'Raw Markdown visible'
         assert any('<a href=' in widget.get_label() for widget in credits),'Links not rendered'
-        window.credits_window.close()
+        credits_window.close()
         window.profile_tiles.set_selected(window.profile_choices.index('balanced'))
         window.fan_mode.choose(0)
         window.receive_installation_status(None,'Timed out')
