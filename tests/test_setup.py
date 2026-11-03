@@ -129,6 +129,16 @@ class SetupTests(unittest.TestCase):
         self.assertTrue((self.app/'hardware/controls.py').is_file())
         self.assertTrue((self.base/'group').exists())
 
+    def test_install_waits_for_a_leftover_process_holding_the_lock(self) -> None:
+        # dkms leaves a short sleep running that inherited the lock from the previous setup run.
+        lock=self.base/'run/fedorizer-setup.lock'
+        leftover=subprocess.Popen(['flock',str(lock),'sleep','2'])
+        self.addCleanup(leftover.wait)
+        while subprocess.run(['flock','-n',str(lock),'true'],check=False).returncode==0: pass
+        result=self.run_setup('install')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((self.app/'hardware/controls.py').is_file())
+
     def test_service_is_sandboxed_and_lighting_is_restored_after_sleep(self) -> None:
         result=self.run_setup('install')
         self.assertEqual(result.returncode,0,result.stderr)
@@ -139,6 +149,8 @@ class SetupTests(unittest.TestCase):
                      'DevicePolicy=closed','DeviceAllow=char-hidraw rw','DeviceAllow=char-input r','NoNewPrivileges=yes'):
             self.assertIn(line+'\n',service)
         self.assertNotIn('ProtectKernelTunables=',service)
+        # With NoNewPrivileges, any User= line, even root, makes systemd drop CAP_SETUID, which the button launch needs.
+        self.assertFalse([line for line in service.splitlines() if line.startswith('User=')])
         resume=(units/'fedorizer-resume.service').read_text()
         self.assertIn('ExecStart=-/usr/bin/systemctl --no-block reload fedorizer-daemon.service',resume)
         self.assertIn('WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target',resume)
