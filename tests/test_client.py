@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from control_center.client import JSON, ControlClient
 from control_center.models import (
     ZONE_MODE,
+    CoreKind,
     Fan,
     FanMode,
     Fans,
@@ -22,7 +23,7 @@ from control_center.models import (
     full_key_map,
     mapping,
 )
-from control_center.telemetry import Core, CoreKind, Telemetry, gpu_fields
+from control_center.telemetry import Core, Telemetry, gpu_fields
 
 type Handler = Callable[[socket.socket,io.BufferedReader],object]
 

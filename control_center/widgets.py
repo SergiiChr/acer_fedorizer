@@ -11,8 +11,8 @@ gi.require_version('Gtk','4.0')
 from gi.repository import Gdk, Gtk, Pango, PangoCairo
 
 from .keyboard import keycaps
-from .models import Lamp
-from .telemetry import Core, CoreKind
+from .models import CoreKind, Lamp
+from .telemetry import Core
 
 
 def label(text: str = '', css: str | None = None, xalign: float = 0) -> Gtk.Label:
@@ -86,8 +86,12 @@ class ModeTiles(Gtk.FlowBox):
         return self.selected
 
 
+ACCENT=(.36,.75,.74)
+GRID_COLOR=(.55,.6,.65,.12)
+
+
 class HistoryChart(Gtk.DrawingArea):
-    def __init__(self, color: tuple[float, float, float] = (.36,.75,.74), height: int = 90) -> None:
+    def __init__(self, color: tuple[float, float, float] = ACCENT, height: int = 90) -> None:
         super().__init__(content_height=height,hexpand=True)
         self.values: list[float | None]=[]
         self.color=color
@@ -96,7 +100,7 @@ class HistoryChart(Gtk.DrawingArea):
         self.values=[*self.values,value][-60:]
         self.queue_draw()
     def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
-        cr.set_source_rgba(.55,.6,.65,.12)
+        cr.set_source_rgba(*GRID_COLOR)
         cr.set_line_width(1)
         for y in (height*.25,height*.5,height*.75):
             cr.move_to(0,y); cr.line_to(width,y)
@@ -118,7 +122,7 @@ class HistoryChart(Gtk.DrawingArea):
 
 
 # Cores of a CPU without core types use the performance color.
-CORE_COLORS: dict[CoreKind | None, tuple[float, float, float]]={CoreKind.PERFORMANCE:(.36,.75,.74),CoreKind.EFFICIENCY:(.64,.57,.88),None:(.36,.75,.74)}
+CORE_COLORS: dict[CoreKind | None, tuple[float, float, float]]={CoreKind.PERFORMANCE:ACCENT,CoreKind.EFFICIENCY:(.64,.57,.88)}
 AVERAGE_COLOR=(.90,.71,.40)
 TEXT_COLOR=(.6,.65,.7,.9)
 AVERAGE_SECONDS=10
@@ -143,12 +147,11 @@ class CoreBars(Gtk.DrawingArea):
         self.queue_draw()
     def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
         cr.set_font_size(11)
-        if not self.cores:
-            cr.set_source_rgba(*TEXT_COLOR); cr.move_to(24,height/2); cr.show_text('Core frequencies are unavailable'); return
+        if not self.cores: return
         left,top,bottom=34,30,height-20
         def y(ghz: float) -> float: return bottom-(bottom-top)*max(0,min(ghz,self.top))/self.top
         for mark in range(self.top+1):
-            cr.set_source_rgba(.55,.6,.65,.12); cr.set_line_width(1)
+            cr.set_source_rgba(*GRID_COLOR); cr.set_line_width(1)
             cr.move_to(left,y(mark)); cr.line_to(width,y(mark)); cr.stroke()
             cr.set_source_rgba(*TEXT_COLOR); cr.move_to(4,y(mark)+4); cr.show_text(f'{mark} GHz' if mark==self.top else str(mark))
         slot=(width-left)/len(self.cores)
@@ -156,7 +159,7 @@ class CoreBars(Gtk.DrawingArea):
         for i,(core,average) in enumerate(zip(self.cores,self.averages,strict=True)):
             x=left+i*slot
             cr.set_source_rgba(*AVERAGE_COLOR,.45); cr.rectangle(x+slot*.12,y(average),slot*.76,bottom-y(average)); cr.fill()
-            cr.set_source_rgba(*CORE_COLORS[core.kind],.95)
+            cr.set_source_rgba(*CORE_COLORS.get(core.kind,ACCENT),.95)
             cr.rectangle(x+slot*.32,y(core.ghz),slot*.36,bottom-y(core.ghz)); cr.fill()
             counts[core.kind]=counts.get(core.kind,0)+1
             if slot>=18:

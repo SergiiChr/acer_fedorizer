@@ -10,11 +10,15 @@ if [[ $EUID -ne 0 ]]; then
     exec sudo -- "$0" "$MODE"
 fi
 source "$SCRIPT_DIR/setup-common.sh"
-# Serialize lifecycle changes; the /run lock is released when the process exits.
-# Waiting covers child processes of an earlier run that still hold the lock briefly, such as a dkms sleep.
+# Serialize lifecycle changes. flock holds the /run lock and closes it for this script,
+# so children that outlive the run, such as a dkms sleep, cannot keep it.
 command -v flock >/dev/null || { echo 'flock is required for safe installation.' >&2; exit 1; }
-exec 9>"$RUN_DIR/fedorizer-setup.lock"
-flock -w 10 9 || { echo 'Another installation is already running.' >&2; exit 1; }
+if [[ -z ${FEDORIZER_SETUP_LOCKED:-} ]]; then
+    status=0
+    FEDORIZER_SETUP_LOCKED=1 flock -o -n -E 75 "$RUN_DIR/fedorizer-setup.lock" "$0" "$MODE" || status=$?
+    [[ $status -ne 75 ]] || { echo 'Another installation is already running.' >&2; status=1; }
+    exit "$status"
+fi
 if [[ "$MODE" == --uninstall ]]; then
     remove_application
     echo 'Acer Fedorizer completely removed, including settings, backups, and lightbar driver.'
@@ -59,7 +63,7 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/python3 -m hardware.daemon --socket-owner $SOCKET_UID
 # Hand fans back to firmware control after every stop, including a crash.
 ExecStopPost=/usr/bin/python3 -m hardware.daemon --auto-fans
-# Replays saved lighting; the resume unit uses it after sleep.
+# Replays saved lighting and rechecks CPU caps; the resume unit uses it after sleep.
 ExecReload=/usr/bin/kill -USR1 \$MAINPID
 Restart=on-failure
 RestartSec=3
@@ -99,7 +103,7 @@ WantedBy=multi-user.target
 SERVICE
 cat > "$RESUME_UNIT" <<SERVICE
 [Unit]
-Description=Reapply Acer Fedorizer lighting after sleep
+Description=Reapply Acer Fedorizer lighting and CPU caps after sleep
 After=${SLEEP_TARGETS[*]/%/.target}
 [Service]
 Type=oneshot

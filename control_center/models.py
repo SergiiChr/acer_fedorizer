@@ -50,6 +50,11 @@ def strings(value: JSON) -> list[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
+class CoreKind(StrEnum):
+    PERFORMANCE = 'performance'
+    EFFICIENCY = 'efficiency'
+
+
 class FanMode(StrEnum):
     AUTO = 'auto'
     MAX = 'max'
@@ -60,6 +65,11 @@ class FanMode(StrEnum):
 class Fan:
     mode: FanMode
     percent: int
+
+    @property
+    def speed(self) -> int:
+        """The set_fan_speed percentage that selects this state: 0 for automatic, 100 for full speed."""
+        return 0 if self.mode == FanMode.AUTO else 100 if self.mode == FanMode.MAX else self.percent
 
     @classmethod
     def parse(cls, value: JSON) -> 'Fan | None':
@@ -153,11 +163,11 @@ class CoreLimit:
         data = mapping(value)
         minimum, maximum, limit = integer(data.get('minimum')), integer(data.get('maximum')), integer(data.get('limit'))
         raw = data.get('current')
-        current = [number for item in (raw if isinstance(raw, list) else []) if (number := integer(item)) is not None]
+        low, high = (integer(item) for item in raw) if isinstance(raw, list) and len(raw) == 2 else (None, None)
         if minimum is None or maximum is None or not 0 < minimum <= maximum:
             return None
         return cls(minimum, maximum, limit if limit is not None and minimum <= limit <= maximum else None,
-                   (min(current), max(current)) if current else None)
+                   (low, high) if low is not None and high is not None and low <= high else None)
 
 
 @dataclass(frozen=True)
@@ -181,7 +191,7 @@ class Settings:
     lighting: Mapping[str, LightingDraft] = field(default_factory=dict)
     per_key: PerKey = field(default_factory=PerKey)
     # Frequency caps by core type, 'performance' and 'efficiency', when the CPU reports core types.
-    cpu_limits: Mapping[str, CoreLimit] = field(default_factory=dict)
+    cpu_limits: Mapping[CoreKind, CoreLimit] = field(default_factory=dict)
 
     @classmethod
     def parse(cls, value: JSON) -> 'Settings':
@@ -211,7 +221,8 @@ class Settings:
             lighting={target: LightingDraft.from_state(mapping(lighting.get(target)), target_modes)
                       for target, target_modes in modes.items()},
             per_key=PerKey.parse(lighting.get('per_key')),
-            cpu_limits={kind: limit for kind, item in mapping(value.get('cpu_limits')).items() if (limit := CoreLimit.parse(item))})
+            cpu_limits={CoreKind(kind): limit for kind, item in mapping(value.get('cpu_limits')).items()
+                        if kind in CoreKind and (limit := CoreLimit.parse(item))})
 
 
 @dataclass(frozen=True)

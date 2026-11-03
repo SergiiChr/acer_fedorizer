@@ -11,14 +11,17 @@ from pathlib import Path
 from .client import JSON
 from .display import PanelStatus
 from .installation import CHECKS, Check, Report
-from .models import FanMode
-from .telemetry import Battery, Core, CoreKind, Gpu, Sample
+from .models import CoreKind, FanMode
+from .telemetry import Battery, Core, Gpu, Sample
 
 
 def layout() -> JSON:
     # Measured PH16-72 HID geometry; labels for unbound lamps stay explicit IDs.
     data: JSON=json.loads(Path(__file__).with_name('keyboard-preview.json').read_text())
     return data
+
+
+CORE_MAXIMUMS={'performance': 5600000,'efficiency': 4100000}
 
 
 def fan(percent: int) -> JSON:
@@ -46,7 +49,7 @@ class PreviewClient:
     def settings(self) -> JSON:
         """Return a get_all_settings reply that shares the static values, so callers must not change it."""
         limits: dict[str, JSON]={}
-        for kind,maximum in (('performance',5600000),('efficiency',4100000)):
+        for kind,maximum in CORE_MAXIMUMS.items():
             cap=self.cpu_limits[kind] or maximum
             limits[kind]={'minimum': 800000,'maximum': maximum,'limit': self.cpu_limits[kind],'current': [cap,cap]}
         return {**self.static,**self.switches,'fans': self.fans,'lighting_state': copy.deepcopy(self.lighting),'cpu_limits': limits,
@@ -58,13 +61,12 @@ class PreviewClient:
     def answer(self, command: str, params: dict[str, JSON]) -> JSON:
         self.commands.append((command,copy.deepcopy(params)))
         if command=='get_keyboard_layout': return layout()
-        if command=='set_thermal_profile':
-            self.profile=str(params['profile'])
-            return {'current': self.profile}
-        if command=='set_lighting': self.lighting[str(params['target'])]=dict(params)
+        if command=='set_thermal_profile': self.profile=str(params['profile'])
+        elif command=='set_lighting': self.lighting[str(params['target'])]=dict(params)
         elif command=='set_per_zone_mode': self.lighting['keyboard']={'kind': 'zones','colors': [params[f'zone{i}'] for i in range(1,5)]}
         elif command=='set_per_key': self.lighting['per_key']=copy.deepcopy(params)
-        elif command=='set_cpu_limits': self.cpu_limits={kind:limit if isinstance(limit:=params[kind],int) else None for kind in ('performance','efficiency')}
+        elif command=='set_cpu_limits':
+            self.cpu_limits={kind:limit if isinstance(limit:=params[kind],int) and limit<maximum else None for kind,maximum in CORE_MAXIMUMS.items()}
         elif command=='set_fan_speed': self.fans={key:fan(percent if isinstance(percent:=params[key],int) else 0) for key in ('cpu','gpu')}
         elif command.startswith('set_') and 'enabled' in params: self.switches[command[4:]]=params['enabled'] is True
         return self.settings()

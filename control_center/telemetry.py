@@ -4,8 +4,9 @@ import math
 import subprocess
 import time
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
+
+from .models import CoreKind
 
 # Newer drivers report average and instant power; older ones only power.draw.
 GPU_QUERIES = (
@@ -17,12 +18,7 @@ GPU_QUERIES = (
 MAX_SAMPLE_GAP = 5.0
 
 
-class CoreKind(StrEnum):
-    PERFORMANCE = 'performance'
-    EFFICIENCY = 'efficiency'
-
-
-# Hybrid Intel CPUs list each core type's logical CPUs here.
+# Hybrid Intel CPUs list each core type's logical CPUs here; hardware/cpufreq.py reads the same lists for the caps.
 CORE_LISTS = {CoreKind.PERFORMANCE: 'devices/cpu_core/cpus', CoreKind.EFFICIENCY: 'devices/cpu_atom/cpus'}
 
 

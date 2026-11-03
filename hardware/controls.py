@@ -42,7 +42,7 @@ class KeyboardLayout(TypedDict):
 
 
 class Settings(TypedDict, total=False):
-    """The get_all_settings reply, also returned by set_* commands except set_thermal_profile, which replies {'current': profile}.
+    """The get_all_settings reply, also returned by every set_* command.
     Optional keys exist only with their hardware.
     """
     version: Required[str]
@@ -374,7 +374,7 @@ class NativeControls:
                 out['cpu_limits'] = self.cpu.state()
             return out
 
-    def set_profile(self, profile: str) -> str:
+    def set_profile(self, profile: str) -> None:
         if not self.profile_dir or profile not in read(self.profile_dir / 'choices').split():
             raise ValueError('Unsupported performance profile')
         # Firmware owns AC restrictions. Read its accepted state after writing.
@@ -382,7 +382,6 @@ class NativeControls:
         actual = read(self.profile_dir / 'profile')
         if actual != profile:
             raise RuntimeError(f'Firmware selected {actual!r} instead of {profile!r}')
-        return actual
 
     def auto_fans(self) -> None:
         """Hand both fans back to firmware control; each fan is attempted even if the other fails."""
@@ -596,7 +595,8 @@ class NativeControls:
                 profile = p.get('profile')
                 if not isinstance(profile, str):
                     raise ValueError('Unsupported performance profile')
-                return {'current': self.set_profile(profile)}
+                self.set_profile(profile)
+                return self.settings()
             if name == 'set_fan_speed':
                 self.set_fans(integer(p.get('cpu'), 0, 100), integer(p.get('gpu'), 0, 100))
             elif name == 'set_cpu_limits':

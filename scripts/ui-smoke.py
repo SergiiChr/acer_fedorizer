@@ -15,7 +15,7 @@ from gi.repository import GLib, Gtk
 
 from control_center.app import Application, KeyEditor
 from control_center.client import JSON
-from control_center.models import ZONE_MODE, Lamp, Settings, mapping
+from control_center.models import ZONE_MODE, CoreKind, Lamp, Settings, mapping
 from control_center.preview import PreviewServices
 from control_center.widgets import color_rgba
 
@@ -95,16 +95,16 @@ def checks() -> bool:
             window.fan_mode.buttons[0].emit('clicked')
             mutate.assert_not_called()
             assert not window.cpu_slider.get_sensitive() and not window.gpu_slider.get_sensitive()
-            # Frequency limits apply only with the button; a cap at the hardware maximum means no cap.
+            # Frequency limits apply only with the button.
             window.nav.select_row(window.nav_rows['cpu'])
-            rows=window.limit_rows
-            assert rows['performance'].get_value()==4.0 and rows['efficiency'].get_value()==3.0,'Saved caps not shown'
-            rows['performance'].set_value(4.5); rows['efficiency'].set_value(4.1)
+            performance,efficiency=window.limit_rows[CoreKind.PERFORMANCE],window.limit_rows[CoreKind.EFFICIENCY]
+            assert performance.get_value()==4.0 and efficiency.get_value()==3.0,'Saved caps not shown'
+            performance.set_value(4.5); efficiency.set_value(4.1)
             refresh_state()
-            assert rows['performance'].get_value()==4.5,'Refresh reset the limit fields'
+            assert performance.get_value()==4.5,'Refresh reset the limit fields'
             mutate.assert_not_called()
             window.apply_limits()
-            mutate.assert_called_once_with('set_cpu_limits',{'performance':4500000,'efficiency':None}); mutate.reset_mock()
+            mutate.assert_called_once_with('set_cpu_limits',{'performance':4500000,'efficiency':4100000}); mutate.reset_mock()
             window.remove_limits()
             assert mutate.call_args.args[:2]==('set_cpu_limits',{'performance':None,'efficiency':None})
         for _ in range(2): window.receive_cores(services.cores())

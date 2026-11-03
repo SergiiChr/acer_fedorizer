@@ -85,6 +85,7 @@ Run `scripts/check-tools.sh` once to install the pinned ruff and mypy into `.ven
 Screenshots go to `publish/screenshots` so local runs leave tracked files alone; set `SCREENSHOTS=docs/screenshots` to update the README images, as CI does before packaging.
 
 GUI checks need GTK 4.10+, libadwaita 1.4+, PyGObject/Pycairo, and a display; CI uses Xvfb and a private D-Bus session.
+On a Wayland desktop, run `GDK_BACKEND=x11 scripts/check.sh`, because screenshots there fail with "Window has not been rendered".
 Report checks you could not run.
 Passing fake-hardware tests does not prove the app works on real hardware.
 

@@ -129,15 +129,21 @@ class SetupTests(unittest.TestCase):
         self.assertTrue((self.app/'hardware/controls.py').is_file())
         self.assertTrue((self.base/'group').exists())
 
-    def test_install_waits_for_a_leftover_process_holding_the_lock(self) -> None:
-        # dkms leaves a short sleep running that inherited the lock from the previous setup run.
+    def test_setup_leaves_no_process_holding_its_lock(self) -> None:
+        self.registered()
+        self.env['CONTROL_TEST_DKMS_LEFTOVER']='1'
+        result=self.run_setup('uninstall')
+        self.assertEqual(result.returncode,0,result.stderr)
         lock=self.base/'run/fedorizer-setup.lock'
-        leftover=subprocess.Popen(['flock',str(lock),'sleep','2'])
-        self.addCleanup(leftover.wait)
-        while subprocess.run(['flock','-n',str(lock),'true'],check=False).returncode==0: pass
+        self.assertEqual(subprocess.run(['flock','-n',str(lock),'true'],check=False).returncode,0)
         result=self.run_setup('install')
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertTrue((self.app/'hardware/controls.py').is_file())
+        with subprocess.Popen(['flock',str(lock),'sleep','5']) as running:
+            while subprocess.run(['flock','-n',str(lock),'true'],check=False).returncode==0: pass
+            result=self.run_setup('uninstall')
+            running.kill()
+        self.assertEqual(result.returncode,1)
+        self.assertIn('Another installation is already running.',result.stderr)
 
     def test_service_is_sandboxed_and_lighting_is_restored_after_sleep(self) -> None:
         result=self.run_setup('install')

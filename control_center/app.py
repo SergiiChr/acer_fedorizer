@@ -22,6 +22,7 @@ from .models import (
     TARGETS,
     ZONE_COLORS,
     ZONE_MODE,
+    CoreKind,
     FanMode,
     Fans,
     Lamp,
@@ -34,7 +35,7 @@ from .models import (
     uses_palette,
 )
 from .services import Services
-from .telemetry import Battery, Core, CoreKind, Sample
+from .telemetry import Battery, Core, Sample
 from .widgets import CoreBars, HistoryChart, KeyboardCanvas, ModeTiles, box, color_rgba, hex_rgba, label
 
 PAGES=[('overview','Dashboard','view-grid-symbolic','Performance profile, cooling, and system status'),
@@ -48,7 +49,9 @@ PAGES=[('overview','Dashboard','view-grid-symbolic','Performance profile, coolin
 PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-volume-low-symbolic',
                'balanced':'power-profile-balanced-symbolic','balanced-performance':'power-profile-performance-symbolic',
                'performance':'weather-storm-symbolic'}
-CORE_TITLES={'performance':'Performance cores','efficiency':'Efficiency cores'}
+CORE_TITLES={CoreKind.PERFORMANCE:'Performance cores',CoreKind.EFFICIENCY:'Efficiency cores'}
+FAN_MODES={FanMode.AUTO:('Auto','view-refresh-symbolic'),FanMode.MAX:('Max','power-profile-performance-symbolic'),
+           FanMode.MANUAL:('Manual','preferences-system-symbolic')}
 # Manual fan speeds apply once a slider has rested this long, so dragging does not send a write per step.
 FAN_SETTLE_MS=500
 
@@ -68,8 +71,9 @@ def suffix_row(title: str, value: str = '', subtitle: str | None = None) -> tupl
     return row,value_label
 
 
-def ghz(khz: int) -> str:
-    return f'{khz/1e6:.1f} GHz'
+def ghz(low: int, high: int | None = None) -> str:
+    """A frequency or a range of them, given in kHz."""
+    return f'{low/1e6:.1f}–{high/1e6:.1f} GHz' if high is not None and high!=low else f'{low/1e6:.1f} GHz'
 
 
 def number_text(value: float | None, unit: str = '', digits: int = 0, missing: str = 'Unavailable') -> str:
@@ -202,7 +206,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.profile_choices: list[str]=[]
         self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles)); page.append(self.profile_group)
         self.fan_group=Adw.PreferencesGroup(title='Fan speed',description='Click a mode to apply it. Manual speeds apply when a slider stops moving. Failed writes restore automatic cooling.')
-        self.fan_mode=ModeTiles([('Auto','view-refresh-symbolic'),('Max','power-profile-performance-symbolic'),('Manual','preferences-system-symbolic')],changed=self.apply_fans)
+        self.fan_mode=ModeTiles(list(FAN_MODES.values()),changed=self.apply_fans)
         self.fan_group.add(Adw.PreferencesRow(child=self.fan_mode))
         self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan',45)
         self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
@@ -256,7 +260,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.core_bars=CoreBars(); card.append(self.core_bars)
         page.append(card)
         self.limit_group=Adw.PreferencesGroup(title='Frequency limits',description='Caps the highest frequency of each core type. The hardware service saves the caps and puts them back when another tool changes them.')
-        self.limit_rows: dict[str, Adw.SpinRow]={}
+        self.limit_rows: dict[CoreKind, Adw.SpinRow]={}
         for kind,title in CORE_TITLES.items():
             row=Adw.SpinRow.new_with_range(.1,10,.1); row.set_title(title); row.set_digits(1); row.set_visible(False)
             self.limit_rows[kind]=row; self.limit_group.add(row)
@@ -549,10 +553,11 @@ class MainWindow(Adw.ApplicationWindow):
 
     def receive_cores(self, cores: list[Core]) -> None:
         limits=self.state.cpu_limits if self.state else {}
-        self.core_bars.sample(cores,{CoreKind(kind):limit.current[1]/1e6 for kind,limit in limits.items() if limit.current and kind in CoreKind},
-                              max((limit.maximum/1e6 for limit in limits.values()),default=0))
-        averages=[f'{CORE_TITLES.get(kind,"Cores").lower()} {sum(speeds)/len(speeds):.1f} GHz'
-                  for kind in CORE_TITLES if (speeds:=[core.ghz for core in cores if core.kind==kind])]
+        # A cap at the hardware maximum is no cap, so it draws no line.
+        caps={kind:limit.current[1]/1e6 for kind,limit in limits.items() if limit.current and limit.current[1]<limit.maximum}
+        self.core_bars.sample(cores,caps,max((limit.maximum/1e6 for limit in limits.values()),default=0))
+        averages=[f'{title.lower()} {sum(speeds)/len(speeds):.1f} GHz'
+                  for kind,title in CORE_TITLES.items() if (speeds:=[core.ghz for core in cores if core.kind==kind])]
         self.core_summary.set_text(('Now · '+' · '.join(averages)) if averages else f'{len(cores)} cores' if cores else 'Core frequencies are unavailable')
 
     def show_limits(self, state: Settings) -> None:
@@ -568,11 +573,9 @@ class MainWindow(Adw.ApplicationWindow):
                     # Without a saved cap, start from the cap in effect, which another tool may have set.
                     row.set_value((limit.limit or (limit.current[1] if limit.current else limit.maximum))/1e6)
         for kind,limit in limits.items():
-            if spin:=self.limit_rows.get(kind):
-                low,high=limit.current or (0,0)
-                effect=ghz(high) if low==high else f'{low/1e6:.1f}–{ghz(high)}'
-                spin.set_subtitle(f'Hardware {limit.minimum/1e6:.1f}–{ghz(limit.maximum)} · in effect {effect if limit.current else "unavailable"}')
-        saved=[f'{CORE_TITLES.get(kind,kind)} {ghz(limit.limit)}' for kind,limit in limits.items() if limit.limit]
+            effect=ghz(*limit.current) if limit.current else 'unavailable'
+            self.limit_rows[kind].set_subtitle(f'Hardware {ghz(limit.minimum,limit.maximum)} · in effect {effect}')
+        saved=[f'{CORE_TITLES[kind]} {ghz(limit.limit)}' for kind,limit in limits.items() if limit.limit]
         self.limit_saved.set_subtitle(' · '.join(saved) or 'None')
 
     def receive_battery(self, battery: Battery | None) -> None:
@@ -610,7 +613,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.receive_state(result or (self.state if self.connected else None))
             if error is None and applied: applied()
             if error is not None and failed: failed(error)
-            # Replies without settings, such as set_thermal_profile, and failures need a fresh read.
+            # Failures need a fresh read.
             if result is None: self.refresh()
         def work() -> Settings | None:
             # Setting commands reply with the settings they produced.
@@ -625,15 +628,16 @@ class MainWindow(Adw.ApplicationWindow):
     def show_fans(self, fans: Fans) -> None:
         """Select the tile for the firmware fan mode; manual speeds also move the sliders."""
         modes={fans.cpu.mode,fans.gpu.mode}
-        self.fan_mode.set_selected(0 if modes=={FanMode.AUTO} else 1 if modes=={FanMode.MAX} else 2)
+        mode=modes.pop() if len(modes)==1 else FanMode.MANUAL
+        self.fan_mode.set_selected(list(FAN_MODES).index(mode))
         for slider,fan in ((self.cpu_slider,fans.cpu),(self.gpu_slider,fans.gpu)):
             if fan.mode==FanMode.MANUAL and 0<fan.percent<100: slider.set_value(fan.percent)
         self.update_fan_sensitivity()
     def update_fan_sensitivity(self) -> None:
-        manual=self.fan_mode.get_selected()==2
+        manual=self.selected_fan_mode()==FanMode.MANUAL
         self.cpu_slider.set_sensitive(manual); self.gpu_slider.set_sensitive(manual)
     def fan_slider_moved(self, *_: object) -> None:
-        if self.updating or self.fan_mode.get_selected()!=2: return
+        if self.updating or self.selected_fan_mode()!=FanMode.MANUAL: return
         if self.fan_timer: GLib.source_remove(self.fan_timer)
         self.fan_timer=GLib.timeout_add(FAN_SETTLE_MS,self.fan_slider_settled)
     def fan_slider_settled(self) -> bool:
@@ -642,19 +646,19 @@ class MainWindow(Adw.ApplicationWindow):
         self.fan_timer=0
         self.apply_fans()
         return GLib.SOURCE_REMOVE
+    def selected_fan_mode(self) -> FanMode:
+        return list(FAN_MODES)[self.fan_mode.get_selected()]
     def apply_fans(self) -> None:
         """Send the selected fan mode unless the firmware already runs it."""
         self.update_fan_sensitivity()
-        mode=self.fan_mode.get_selected()
-        values=(0,0) if mode==0 else (100,100) if mode==1 else (round(self.cpu_slider.get_value()),round(self.gpu_slider.get_value()))
+        mode=self.selected_fan_mode()
+        values=(0,0) if mode==FanMode.AUTO else (100,100) if mode==FanMode.MAX else (round(self.cpu_slider.get_value()),round(self.gpu_slider.get_value()))
         fans=self.state.fans if self.state else None
-        current=tuple(0 if fan.mode==FanMode.AUTO else 100 if fan.mode==FanMode.MAX else fan.percent for fan in (fans.cpu,fans.gpu)) if fans else None
+        current=(fans.cpu.speed,fans.gpu.speed) if fans else None
         if values!=current: self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})
     def apply_limits(self, *_: object) -> None:
-        limits=self.state.cpu_limits if self.state else {}
-        # A cap at the hardware maximum is no cap.
-        params: dict[str, JSON]={kind:None if (khz:=round(self.limit_rows[kind].get_value()*10)*100000)>=limit.maximum else khz
-                                 for kind,limit in limits.items() if kind in self.limit_rows}
+        # The service treats a cap at the hardware maximum as no cap.
+        params: dict[str, JSON]={kind:round(self.limit_rows[kind].get_value()*10)*100000 for kind in (self.state.cpu_limits if self.state else {})}
         self.mutate('set_cpu_limits',params)
     def remove_limits(self, *_: object) -> None:
         def removed() -> None:

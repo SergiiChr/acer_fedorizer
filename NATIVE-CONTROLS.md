@@ -114,11 +114,13 @@ Replay never changes the saved state.
 
 - Stock `intel_pstate` cpufreq: the daemon writes `scaling_max_freq` for each logical CPU, in kHz.
 - Core types come from `/sys/devices/cpu_core/cpus` (performance) and `/sys/devices/cpu_atom/cpus` (efficiency); without them the feature is hidden.
-- Caps use 100 MHz steps within each type's `cpuinfo_min_freq`–`cpuinfo_max_freq`, so a written value reads back unchanged.
-- Removing a cap writes `cpuinfo_max_freq`.
+- Caps use 100 MHz steps within each type's range, from the lowest `cpuinfo_min_freq` to the highest `cpuinfo_max_freq`.
+- Each CPU gets the cap or its own `cpuinfo_max_freq`, whichever is lower, so a written value reads back unchanged and favored cores keep their higher maximum.
+- Removing a cap writes each CPU's own `cpuinfo_max_freq`; a cap at the type's maximum counts as no cap.
+- Hardware ranges can differ per CPU, so read and restore `cpuinfo_*` per CPU, never from one CPU of a type.
 - Caps are saved only after every write succeeds; a failed write puts the saved caps back.
 - tuned rewrites caps on profile changes, so the daemon checks saved caps every ten seconds, at start, and on reload after sleep, and rewrites only CPUs that differ.
-- Observed host: performance CPUs 0–15 at 0.8–5.6 GHz, efficiency CPUs 16–31 at 0.8–4.1 GHz.
+- Observed host: performance CPUs 0–15 at 0.8–5.6 GHz, with favored CPUs 8–11 up to 5.8 GHz, and efficiency CPUs 16–31 at 0.8–4.1 GHz.
 
 ## Telemetry
 
