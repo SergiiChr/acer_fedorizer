@@ -9,6 +9,12 @@ The lightbar module rebuilds through DKMS after kernel updates, which needs matc
 The app shows the stock driver's current profile every two seconds, including changes from the hardware button or another app.
 Opening the app never applies a profile.
 
+**Do I still need my own CPU frequency cap script or timer?**
+No.
+Set the caps on the CPU page; the hardware service keeps them in place, so turn off your own script or timer to stop the two from competing.
+Until you apply caps, the service leaves CPU frequency settings alone.
+They stay in effect until you remove them or reboot after uninstalling.
+
 **Why can't I change the color for every effect?**
 Neon and Wave use firmware palettes.
 Other effects send the separate color command used by Acer's original software.
@@ -27,7 +33,7 @@ This firmware exposes few of them.
 
 **Where are logs and settings?**
 Service logs: `journalctl -u fedorizer-daemon.service -b`.
-Successful lighting commands are saved in `/var/lib/acer-fedorizer/lighting.json`.
+Successful lighting commands are saved in `/var/lib/acer-fedorizer/lighting.json`, and CPU frequency caps in `/var/lib/acer-fedorizer/cpu-limits.json`.
 Reinstalling with `./setup.sh install` resets them after asking.
 
 **What should I do if installation fails?**
@@ -38,7 +44,7 @@ After a kernel update, reboot before reinstalling so the running kernel matches 
 With Secure Boot you may need to enroll your distribution's DKMS signing key; a failed module load is reported, not hidden.
 
 **What does uninstall remove?**
-`./setup.sh uninstall` removes the app, service, launcher and icon, control socket, saved lighting, old backups, the socket-access group, and every lightbar DKMS version with its files.
+`./setup.sh uninstall` removes the app, service, launcher and icon, control socket, saved lighting and CPU caps, old backups, the socket-access group, and every lightbar DKMS version with its files.
 Running it twice is safe.
 Shared OS packages and the downloaded folder stay.
 Color-management choices already saved in Mutter are not reverted.

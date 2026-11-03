@@ -54,6 +54,9 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
         if name=='keyboard': app.window.open_editor(); target=app.window.editor
         elif name=='credits': target=app.window.show_credits()
         else: app.window.show_page(name); target=app.window
+        # Core samples otherwise arrive with the two-second poll; several moving samples show averages apart from the bars.
+        if name=='cpu':
+            for _ in range(4): app.window.receive_cores(app.window.services.cores())
         if target: invalidate(target)
         def capture() -> bool:
             try:

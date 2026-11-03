@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,6 +99,8 @@ elif name == 'dkms':
                 print(f'laptop-lightbar/{version}, test-kernel, x86_64: installed')
     elif action == 'remove':
         if os.environ.get('CONTROL_TEST_REMOVE_FAIL'): sys.exit(9)
+        # Real dkms leaves its progress loop's sleep running after it exits.
+        if os.environ.get('CONTROL_TEST_DKMS_LEFTOVER'): subprocess.Popen(['sleep','3'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=False)
         if entry.exists(): shutil.rmtree(entry)
     elif action == 'add':
         if entry.exists():
