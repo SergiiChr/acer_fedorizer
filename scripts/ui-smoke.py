@@ -62,25 +62,54 @@ def checks() -> bool:
         for name in window.nav_rows:
             window.nav.select_row(window.nav_rows[name])
             assert window.stack.get_visible_child_name()==name
-        # Exercise actual tile clicks, including re-click and refresh of an unapplied draft.
+        # One click applies a profile; clicking the profile already in effect sends nothing.
         expected=[('Eco','low-power'),('Quiet','quiet'),('Balanced','balanced'),
                   ('Performance','balanced-performance'),('Turbo','performance')]
         with patch.object(window,'mutate') as mutate:
+            window.profile_tiles.buttons[window.profile_choices.index('balanced')].emit('clicked')
+            mutate.assert_not_called()
             for name,profile in expected:
                 index=window.profile_choices.index(profile)
                 tile=window.profile_tiles.buttons[index]
                 assert tile.get_tooltip_text()==name
-                tile.emit('clicked'); tile.emit('clicked')
+                tile.emit('clicked')
+                mutate.assert_called_once_with('set_thermal_profile',{'profile':profile})
                 assert tile.get_active() and sum(b.get_active() for b in window.profile_tiles.buttons)==1
-                refresh_state()
-                assert window.profile_tiles.get_selected()==index,'Refresh discarded profile selection'
-                window.apply_profile()
-                mutate.assert_called_with('set_thermal_profile',{'profile':profile})
-        for index in (2,0,1,2,2):
-            window.fan_mode.buttons[index].emit('clicked')
-            assert sum(b.get_active() for b in window.fan_mode.buttons)==1
-            assert window.cpu_slider.get_sensitive()==(index==2)
-            assert window.gpu_slider.get_sensitive()==(index==2)
+                mutate.reset_mock()
+                client.profile=profile; refresh_state()
+            client.profile='quiet'; refresh_state()
+            assert window.profile_tiles.get_selected()==window.profile_choices.index('quiet'),'Hardware button change not shown'
+            client.profile='balanced'; refresh_state()
+            # One click applies a fan mode; manual speeds apply once a slider settles, and refreshes keep the unsettled value.
+            window.fan_mode.buttons[1].emit('clicked')
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':100,'gpu':100}); mutate.reset_mock()
+            window.fan_mode.buttons[2].emit('clicked')
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':45,'gpu':45}); mutate.reset_mock()
+            assert window.cpu_slider.get_sensitive() and window.gpu_slider.get_sensitive()
+            window.cpu_slider.set_value(60)
+            refresh_state()
+            assert window.cpu_slider.get_value()==60 and window.fan_mode.get_selected()==2,'Refresh reset an unsettled fan speed'
+            mutate.assert_not_called()
+            while window.fan_timer: GLib.MainContext.default().iteration(True)
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':60,'gpu':45}); mutate.reset_mock()
+            window.fan_mode.buttons[0].emit('clicked')
+            mutate.assert_not_called()
+            assert not window.cpu_slider.get_sensitive() and not window.gpu_slider.get_sensitive()
+            # Frequency limits apply only with the button; a cap at the hardware maximum means no cap.
+            window.nav.select_row(window.nav_rows['cpu'])
+            rows=window.limit_rows
+            assert rows['performance'].get_value()==4.0 and rows['efficiency'].get_value()==3.0,'Saved caps not shown'
+            rows['performance'].set_value(4.5); rows['efficiency'].set_value(4.1)
+            refresh_state()
+            assert rows['performance'].get_value()==4.5,'Refresh reset the limit fields'
+            mutate.assert_not_called()
+            window.apply_limits()
+            mutate.assert_called_once_with('set_cpu_limits',{'performance':4500000,'efficiency':None}); mutate.reset_mock()
+            window.remove_limits()
+            assert mutate.call_args.args[:2]==('set_cpu_limits',{'performance':None,'efficiency':None})
+        for _ in range(2): window.receive_cores(services.cores())
+        bars=window.core_bars
+        assert len(bars.cores)==24 and bars.averages!=[core.ghz for core in bars.cores],'Chart shows no averages'
         credits_window=window.show_credits()
         def descendants(widget: Gtk.Widget) -> Iterator[Gtk.Widget]:
             yield widget
@@ -96,8 +125,6 @@ def checks() -> bool:
         assert '**' not in rendered and '[OpenRGB issue' not in rendered,'Raw Markdown visible'
         assert any('<a href=' in widget.get_label() for widget in credits),'Links not rendered'
         credits_window.close()
-        window.profile_tiles.set_selected(window.profile_choices.index('balanced'))
-        window.fan_mode.choose(0)
         window.installation_failed('Timed out')
         assert 'failed' in (window.status_group.get_description() or '')
         assert all('Not checked' in (row.get_subtitle() or '') for row,_ in window.status_rows.values())
@@ -256,7 +283,7 @@ def verify_layout_failure(errors: list[str], loaded: list[Lamp] | None) -> bool:
         patch.stopall()
         app.window.layout=loaded
         assert errors==['keyboard unplugged'],'Layout failure was not reported: '+repr(errors)
-        print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, profile mappings, mode tiles, draft preservation, palette controls, external per-key colors, layout load failure, and no startup writes',flush=True)
+        print('PASS: zones through the single Apply; per-key brightness/default/zero/apply round trip; status, credits, one-click profile and fan tiles, CPU limits, draft preservation, palette controls, external per-key colors, layout load failure, and no startup writes',flush=True)
     except Exception as error:
         failures.append(str(error)); print('FAIL:',error,file=sys.stderr,flush=True)
     app.window.close(); app.quit()

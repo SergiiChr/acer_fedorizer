@@ -110,10 +110,20 @@ Failed writes are never saved.
 The service replays saved lighting at start, after sleep (`fedorizer-resume.service` runs `systemctl reload`), and when a hidraw device reconnects.
 Replay never changes the saved state.
 
+## CPU frequency caps
+
+- Stock `intel_pstate` cpufreq: the daemon writes `scaling_max_freq` for each logical CPU, in kHz.
+- Core types come from `/sys/devices/cpu_core/cpus` (performance) and `/sys/devices/cpu_atom/cpus` (efficiency); without them the feature is hidden.
+- Caps use 100 MHz steps within each type's `cpuinfo_min_freq`–`cpuinfo_max_freq`, so a written value reads back unchanged.
+- Removing a cap writes `cpuinfo_max_freq`.
+- Caps are saved only after every write succeeds; a failed write puts the saved caps back.
+- tuned rewrites caps on profile changes, so the daemon checks saved caps every ten seconds, at start, and on reload after sleep, and rewrites only CPUs that differ.
+- Observed host: performance CPUs 0–15 at 0.8–5.6 GHz, efficiency CPUs 16–31 at 0.8–4.1 GHz.
+
 ## Telemetry
 
 - NVIDIA monitoring is off until the user turns it on.
-- Per-core GHz is the `scaling_cur_freq` average over each physical core's threads.
+- Per-core GHz is the `scaling_cur_freq` average over each physical core's threads, tagged by core type.
 
 ## Hardware status
 
@@ -132,6 +142,7 @@ Replay never changes the saved state.
 | WASD Wave, reverse direction, medium speed | Accepted, but WASD stayed dark |
 | NVIDIA telemetry (temperature, use, VRAM) | Working; all 24 physical cores report frequency |
 | `switcherooctl` NVIDIA offload environment | Working |
+| CPU caps through `scaling_max_freq` (4.0 GHz performance, 3.0 GHz efficiency) | Working through `cpupower`; daemon writes not yet run on hardware |
 
 WASD Wave darkness: the saved command had nonzero RGB and brightness, so the cause is unknown.
 The user reports WASD comes back after moving brightness back and forth and accepts that.

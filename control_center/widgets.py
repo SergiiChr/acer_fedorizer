@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import itertools
 import math
-from collections.abc import Callable, Iterable, Sequence
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 import cairo
 import gi
@@ -11,6 +12,7 @@ from gi.repository import Gdk, Gtk, Pango, PangoCairo
 
 from .keyboard import keycaps
 from .models import Lamp
+from .telemetry import Core, CoreKind
 
 
 def label(text: str = '', css: str | None = None, xalign: float = 0) -> Gtk.Label:
@@ -36,7 +38,7 @@ def hex_rgba(rgba: Gdk.RGBA) -> str:
 
 
 class ModeTiles(Gtk.FlowBox):
-    """Single-selection icon tiles; selections remain drafts until explicitly applied."""
+    """Single-selection icon tiles; changed() runs after every click."""
     def __init__(self, choices: Sequence[tuple[str, str]] = (), changed: Callable[[], None] | None = None) -> None:
         super().__init__(selection_mode=Gtk.SelectionMode.NONE,homogeneous=True,
                          min_children_per_line=1,max_children_per_line=5,
@@ -113,6 +115,68 @@ class HistoryChart(Gtk.DrawingArea):
             cr.move_to(*segment[0])
             for point in segment[1:]: cr.line_to(*point)
             cr.set_source_rgba(*self.color,.95); cr.set_line_width(2); cr.stroke()
+
+
+# Cores of a CPU without core types use the performance color.
+CORE_COLORS: dict[CoreKind | None, tuple[float, float, float]]={CoreKind.PERFORMANCE:(.36,.75,.74),CoreKind.EFFICIENCY:(.64,.57,.88),None:(.36,.75,.74)}
+AVERAGE_COLOR=(.90,.71,.40)
+TEXT_COLOR=(.6,.65,.7,.9)
+AVERAGE_SECONDS=10
+
+
+class CoreBars(Gtk.DrawingArea):
+    """One bar per physical core: a narrow bar for the current frequency in front of a wide bar for its AVERAGE_SECONDS average.
+    Dashed lines show each core type's frequency cap.
+    """
+    def __init__(self, height: int = 240) -> None:
+        super().__init__(content_height=height,hexpand=True)
+        self.cores: list[Core]=[]; self.averages: list[float]=[]; self.history: list[tuple[float, list[float]]]=[]
+        self.limits: Mapping[CoreKind, float]={}; self.top=1
+        self.set_draw_func(self.draw)
+    def sample(self, cores: list[Core], limits: Mapping[CoreKind, float], top: float) -> None:
+        """Add a sample; limits maps core types to caps in GHz, and the axis runs from zero to at least top GHz."""
+        now=time.monotonic(); values=[core.ghz for core in cores]
+        self.history=[(t,v) for t,v in self.history if now-t<AVERAGE_SECONDS and len(v)==len(values)]+[(now,values)]
+        self.averages=[sum(column)/len(column) for column in zip(*(v for _,v in self.history),strict=True)]
+        self.cores,self.limits=cores,limits
+        self.top=max(1,math.ceil(max([top,*values])))
+        self.queue_draw()
+    def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
+        cr.set_font_size(11)
+        if not self.cores:
+            cr.set_source_rgba(*TEXT_COLOR); cr.move_to(24,height/2); cr.show_text('Core frequencies are unavailable'); return
+        left,top,bottom=34,30,height-20
+        def y(ghz: float) -> float: return bottom-(bottom-top)*max(0,min(ghz,self.top))/self.top
+        for mark in range(self.top+1):
+            cr.set_source_rgba(.55,.6,.65,.12); cr.set_line_width(1)
+            cr.move_to(left,y(mark)); cr.line_to(width,y(mark)); cr.stroke()
+            cr.set_source_rgba(*TEXT_COLOR); cr.move_to(4,y(mark)+4); cr.show_text(f'{mark} GHz' if mark==self.top else str(mark))
+        slot=(width-left)/len(self.cores)
+        counts: dict[CoreKind | None, int]={}
+        for i,(core,average) in enumerate(zip(self.cores,self.averages,strict=True)):
+            x=left+i*slot
+            cr.set_source_rgba(*AVERAGE_COLOR,.45); cr.rectangle(x+slot*.12,y(average),slot*.76,bottom-y(average)); cr.fill()
+            cr.set_source_rgba(*CORE_COLORS[core.kind],.95)
+            cr.rectangle(x+slot*.32,y(core.ghz),slot*.36,bottom-y(core.ghz)); cr.fill()
+            counts[core.kind]=counts.get(core.kind,0)+1
+            if slot>=18:
+                name=('E' if core.kind==CoreKind.EFFICIENCY else 'P')+str(counts[core.kind])
+                extents=cr.text_extents(name)
+                cr.set_source_rgba(*TEXT_COLOR); cr.move_to(x+(slot-extents.width)/2,height-4); cr.show_text(name)
+        for kind,ghz in self.limits.items():
+            indexes=[i for i,core in enumerate(self.cores) if core.kind==kind]
+            if not indexes: continue
+            start,end=left+indexes[0]*slot,left+(indexes[-1]+1)*slot
+            cr.set_source_rgba(*CORE_COLORS[kind],.9); cr.set_line_width(1.5); cr.set_dash([5,4])
+            cr.move_to(start,y(ghz)); cr.line_to(end,y(ghz)); cr.stroke(); cr.set_dash([])
+            text=f'Cap {ghz:.1f} GHz'
+            cr.move_to(end-cr.text_extents(text).width-4,y(ghz)-5); cr.show_text(text)
+        legend: float=left
+        for color,text in ((CORE_COLORS[CoreKind.PERFORMANCE],'Performance core now'),(CORE_COLORS[CoreKind.EFFICIENCY],'Efficiency core now'),
+                           (AVERAGE_COLOR,f'Average, last {AVERAGE_SECONDS} s')):
+            cr.set_source_rgba(*color,.95); cr.rectangle(legend,6,10,10); cr.fill()
+            cr.set_source_rgba(*TEXT_COLOR); cr.move_to(legend+15,15); cr.show_text(text)
+            legend+=cr.text_extents(text).x_advance+36
 
 
 USAGES={4+i:chr(65+i) for i in range(26)}

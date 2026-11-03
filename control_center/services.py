@@ -5,7 +5,7 @@ from typing import Protocol
 
 from . import display, installation
 from .client import JSON, ControlClient
-from .telemetry import Battery, Sample, Telemetry
+from .telemetry import Battery, Core, Sample, Telemetry
 
 
 class Client(Protocol):
@@ -28,6 +28,7 @@ class Services(Protocol):
     def set_display(self, connector: str, enabled: bool) -> display.PanelStatus: ...
     def watch_display(self, callback: Callable[[], None]) -> None: ...
     def sample(self, gpu: bool) -> Sample: ...
+    def cores(self) -> list[Core]: ...
     def battery(self) -> Battery | None: ...
 
 
@@ -54,6 +55,9 @@ class LiveServices:
 
     def sample(self, gpu: bool) -> Sample:
         return self.telemetry.sample(gpu)
+
+    def cores(self) -> list[Core]:
+        return self.telemetry.cores()
 
     def battery(self) -> Battery | None:
         return self.telemetry.battery()

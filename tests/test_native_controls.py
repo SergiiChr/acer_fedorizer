@@ -484,5 +484,82 @@ class NativeTests(unittest.TestCase):
         self.assertTrue(uevents.changed(sock, {'input'}))
 
 
+class CpuLimitTests(unittest.TestCase):
+    """Hybrid CPU with performance cores 0-1 (0.8-5.6 GHz) and efficiency cores 2-3 (0.8-4.1 GHz)."""
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.state = self.root / 'var/lighting.json'
+        for kind, cpus in (('cpu_core', '0-1'), ('cpu_atom', '2-3')):
+            (self.root / 'devices' / kind).mkdir(parents=True)
+            (self.root / 'devices' / kind / 'cpus').write_text(cpus + '\n')
+        self.limits = [self.root / f'devices/system/cpu/cpu{i}/cpufreq/scaling_max_freq' for i in range(4)]
+        for i, path in enumerate(self.limits):
+            path.parent.mkdir(parents=True)
+            maximum = '5600000' if i < 2 else '4100000'
+            for name, value in (('cpuinfo_min_freq', '800000'), ('cpuinfo_max_freq', maximum), ('scaling_max_freq', maximum)):
+                (path.parent / name).write_text(value + '\n')
+        self.controls = NativeControls(str(self.root), str(self.state), discover_hid=False)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_user_can_cap_each_core_type_and_the_cap_survives_a_restart(self) -> None:
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        self.assertEqual(['4000000', '4000000', '3000000', '3000000'], [p.read_text() for p in self.limits])
+        self.assertEqual({'minimum': 800000, 'maximum': 5600000, 'limit': 4000000, 'current': [4000000, 4000000]},
+                         self.controls.settings()['cpu_limits']['performance'])
+        restarted = NativeControls(str(self.root), str(self.state), discover_hid=False)
+        self.assertIn('cpu_frequency_limit', restarted.features)
+        self.assertEqual(3000000, restarted.settings()['cpu_limits']['efficiency']['limit'])
+
+    def test_removing_a_cap_restores_the_hardware_maximum(self) -> None:
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        self.controls.command('set_cpu_limits', {'performance': None, 'efficiency': 3000000})
+        self.assertEqual(['5600000', '5600000', '3000000', '3000000'], [p.read_text() for p in self.limits])
+        self.assertIsNone(self.controls.settings()['cpu_limits']['performance']['limit'])
+
+    def test_invalid_caps_are_rejected_before_any_write(self) -> None:
+        for params in ({'performance': 6000000, 'efficiency': 3000000}, {'performance': 700000, 'efficiency': 3000000},
+                       {'performance': 4050000, 'efficiency': 3000000}, {'performance': True, 'efficiency': 3000000},
+                       {'performance': '4000000', 'efficiency': 3000000}, {'performance': 4000000}):
+            with self.assertRaises(ValueError):
+                self.controls.command('set_cpu_limits', dict(params))
+        self.assertEqual(['5600000', '5600000', '4100000', '4100000'], [p.read_text().strip() for p in self.limits])
+        self.assertFalse(self.state.with_name('cpu-limits.json').exists())
+
+    def test_failed_write_keeps_the_previous_cap_saved_and_applied(self) -> None:
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        self.limits[3].unlink(); self.limits[3].mkdir()
+        with self.assertRaises(OSError):
+            self.controls.command('set_cpu_limits', {'performance': 3500000, 'efficiency': 2500000})
+        self.assertEqual(['4000000', '4000000', '3000000'], [p.read_text() for p in self.limits[:3]])
+        restarted = NativeControls(str(self.root), str(self.state), discover_hid=False)
+        self.assertEqual(4000000, restarted.settings()['cpu_limits']['performance']['limit'])
+
+    def test_saved_cap_is_reasserted_after_another_tool_changes_it(self) -> None:
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': None})
+        self.limits[1].write_text('5600000\n')
+        self.limits[2].write_text('2000000\n')
+        self.controls.enforce_cpu_limits()
+        self.assertEqual(['4000000', '4000000', '2000000\n', '4100000'], [p.read_text() for p in self.limits])
+
+    def test_reassert_writes_nothing_when_caps_hold(self) -> None:
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        for path in self.limits:
+            path.chmod(0o444)
+        self.controls.enforce_cpu_limits()
+        self.assertEqual(['4000000', '4000000', '3000000', '3000000'], [p.read_text() for p in self.limits])
+
+    def test_cpu_without_core_types_offers_no_limits(self) -> None:
+        for kind in ('cpu_core', 'cpu_atom'):
+            (self.root / 'devices' / kind / 'cpus').unlink()
+        controls = NativeControls(str(self.root), str(self.state), discover_hid=False)
+        self.assertNotIn('cpu_frequency_limit', controls.features)
+        self.assertNotIn('cpu_limits', controls.settings())
+        with self.assertRaises(ValueError):
+            controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+
+
 if __name__ == '__main__':
     unittest.main()

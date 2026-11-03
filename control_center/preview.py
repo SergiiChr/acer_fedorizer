@@ -12,7 +12,7 @@ from .client import JSON
 from .display import PanelStatus
 from .installation import CHECKS, Check, Report
 from .models import FanMode
-from .telemetry import Battery, Gpu, Sample
+from .telemetry import Battery, Core, CoreKind, Gpu, Sample
 
 
 def layout() -> JSON:
@@ -35,16 +35,21 @@ class PreviewClient:
         self.profile='balanced'
         self.fans: dict[str, JSON]={'cpu': fan(0),'gpu': fan(0)}
         self.switches: dict[str, JSON]={'battery_limiter': True,'backlight_timeout': True}
+        self.cpu_limits: dict[str, int | None]={'performance': 4000000,'efficiency': 3000000}
         self.lighting: dict[str, JSON]={target:{'mode': 0,'color': '5bbfbd','brightness': 80,'speed': 5,'direction': 1,'link_wasd': True}
                                         for target in ('keyboard','wasd','logo','lightbar')}
         self.static: dict[str, JSON]={'version': '0.8.0','driver_version': 'Stock acer_wmi + USB HID','laptop_type': 'Predator PH16-72',
-            'available_features': ['thermal_profile','fan_speed','four_zone_mode','per_zone_mode','per_key_mode','usb_logo','lightbar','battery_limiter','backlight_timeout'],
+            'available_features': ['thermal_profile','fan_speed','cpu_frequency_limit','four_zone_mode','per_zone_mode','per_key_mode','usb_logo','lightbar','battery_limiter','backlight_timeout'],
             'fan_rpm': {'cpu': 2170,'gpu': 1890},'ac_online': True,
             'lighting_modes': {'keyboard': list(range(10)),'wasd': [0,1,2,3,7],'logo': [0,1,2,9],'lightbar': [0,1,2,3],'all': [0,1,2]}}
 
     def settings(self) -> JSON:
         """Return a get_all_settings reply that shares the static values, so callers must not change it."""
-        return {**self.static,**self.switches,'fans': self.fans,'lighting_state': copy.deepcopy(self.lighting),
+        limits: dict[str, JSON]={}
+        for kind,maximum in (('performance',5600000),('efficiency',4100000)):
+            cap=self.cpu_limits[kind] or maximum
+            limits[kind]={'minimum': 800000,'maximum': maximum,'limit': self.cpu_limits[kind],'current': [cap,cap]}
+        return {**self.static,**self.switches,'fans': self.fans,'lighting_state': copy.deepcopy(self.lighting),'cpu_limits': limits,
                 'thermal_profile': {'current': self.profile,'available': ['low-power','quiet','balanced','balanced-performance','performance']}}
 
     def command(self, command: str, params: dict[str, JSON] | None=None) -> JSON:
@@ -59,6 +64,7 @@ class PreviewClient:
         if command=='set_lighting': self.lighting[str(params['target'])]=dict(params)
         elif command=='set_per_zone_mode': self.lighting['keyboard']={'kind': 'zones','colors': [params[f'zone{i}'] for i in range(1,5)]}
         elif command=='set_per_key': self.lighting['per_key']=copy.deepcopy(params)
+        elif command=='set_cpu_limits': self.cpu_limits={kind:limit if isinstance(limit:=params[kind],int) else None for kind in ('performance','efficiency')}
         elif command=='set_fan_speed': self.fans={key:fan(percent if isinstance(percent:=params[key],int) else 0) for key in ('cpu','gpu')}
         elif command.startswith('set_') and 'enabled' in params: self.switches[command[4:]]=params['enabled'] is True
         return self.settings()
@@ -74,6 +80,7 @@ class PreviewServices:
     def __init__(self) -> None:
         self.client = PreviewClient()
         self.panel = PanelStatus(True, False, 'eDP-1', 'default', 'Built-in display · Native SDR supported')
+        self.tick = 0
 
     def installation_status(self) -> Report:
         return Report(model='Predator PH16-72',kernel='7.2.11-200.fc44.x86_64',installed=True,healthy=True,
@@ -95,9 +102,14 @@ class PreviewServices:
 
     def sample(self, gpu: bool) -> Sample:
         return Sample(cpu_usage=18.4,cpu_temperature=54,memory_used=9.8,memory_total=31.1,
-                      cores=[2.1,2.3,2.2,2.5,2.1,2.4,2.2,2.3]+[1.3+(i%4)/10 for i in range(16)],
                       gpu=Gpu(temperature=42,usage=3,memory_used=486,memory_total=12282,power=5.2) if gpu else None,
                       battery=self.battery())
+
+    def cores(self) -> list[Core]:
+        # Each call moves the pattern, so the averages in the chart differ from the current values.
+        self.tick+=1
+        return ([Core(CoreKind.PERFORMANCE,round(2.6+1.2*math.sin(self.tick*.9+i),2)) for i in range(8)]+
+                [Core(CoreKind.EFFICIENCY,round(1.9+.8*math.sin(self.tick*.7+i*1.3),2)) for i in range(16)])
 
     def battery(self) -> Battery:
         return Battery(capacity=78,status='Charging',health=97,hours=0.72,cycles=126,manufacturer='SMP',model='AP21D8M')

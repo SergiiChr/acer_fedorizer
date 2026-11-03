@@ -58,7 +58,7 @@ Installer tests simulate failures at each step: missing headers, build or signin
 They never install the app or change firmware.
 
 `scripts/ui-smoke.py` drives real GTK widgets with preview data.
-It checks navigation, profile and fan mappings, single-choice mode tiles, fan slider state, independent drafts, that refresh keeps drafts, palette limits, no writes at startup, credits and links, async status and errors, Wave colors per device, per-key brightness across edit/apply/reopen, and four-zone apply.
+It checks navigation, one-click profile and fan tiles, fan sliders that apply once they settle, CPU caps applied only with the button, independent drafts, that refresh keeps drafts, palette limits, no writes at startup, credits and links, async status and errors, Wave colors per device, per-key brightness across edit/apply/reopen, and four-zone apply.
 
 ## Packaging
 

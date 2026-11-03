@@ -34,11 +34,11 @@ from .models import (
     uses_palette,
 )
 from .services import Services
-from .telemetry import Battery, Sample
-from .widgets import HistoryChart, KeyboardCanvas, ModeTiles, box, color_rgba, hex_rgba, label
+from .telemetry import Battery, Core, CoreKind, Sample
+from .widgets import CoreBars, HistoryChart, KeyboardCanvas, ModeTiles, box, color_rgba, hex_rgba, label
 
-PAGES=[('overview','Dashboard','view-grid-symbolic','CPU, GPU, memory, and power status'),
-       ('performance','Power & Performance','power-profile-performance-symbolic','Performance profiles and fan speed control'),
+PAGES=[('overview','Dashboard','view-grid-symbolic','Performance profile, cooling, and system status'),
+       ('cpu','CPU','computer-symbolic','Core frequencies and frequency limits'),
        ('lighting','Lighting','keyboard-brightness-symbolic','Keyboard, WASD, lid logo, and rear light bar settings'),
        ('battery','Battery','battery-good-symbolic','Charge level, battery health, and charging controls'),
        ('display','Display','video-display-symbolic','Built-in display color management'),
@@ -48,6 +48,9 @@ PAGES=[('overview','Dashboard','view-grid-symbolic','CPU, GPU, memory, and power
 PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-volume-low-symbolic',
                'balanced':'power-profile-balanced-symbolic','balanced-performance':'power-profile-performance-symbolic',
                'performance':'weather-storm-symbolic'}
+CORE_TITLES={'performance':'Performance cores','efficiency':'Efficiency cores'}
+# Manual fan speeds apply once a slider has rested this long, so dragging does not send a write per step.
+FAN_SETTLE_MS=500
 
 def button(text: str, callback: Callable[[Gtk.Button], object], css: str = '') -> Gtk.Button:
     widget=Gtk.Button(label=text,valign=Gtk.Align.CENTER)
@@ -63,6 +66,10 @@ def suffix_row(title: str, value: str = '', subtitle: str | None = None) -> tupl
     value_label.set_wrap(False)
     row.add_suffix(value_label)
     return row,value_label
+
+
+def ghz(khz: int) -> str:
+    return f'{khz/1e6:.1f} GHz'
 
 
 def number_text(value: float | None, unit: str = '', digits: int = 0, missing: str = 'Unavailable') -> str:
@@ -92,7 +99,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.layout_loading=False
         self.layout_waiters: list[tuple[Callable[[list[Lamp]], object], Callable[[str], object]]]=[]
         self.gpu_enabled=False; self.status_pending=False; self.editor: KeyEditor | None=None
-        self.fan_draft_loaded=False; self.display_watched=False
+        self.fan_timer=0; self.limit_kinds: tuple[str, ...]=(); self.display_watched=False
         self.workers=Workers()
         self.build()
         self.connect('realize',self.realized)
@@ -166,7 +173,7 @@ class MainWindow(Adw.ApplicationWindow):
             clamp=Adw.Clamp(maximum_size=1040,tightening_threshold=850,child=page)
             scroll.set_child(clamp)
             self.stack.add_named(scroll,key); self.pages[key]=page
-        self.build_overview(); self.build_performance(); self.build_lighting()
+        self.build_overview(); self.build_cpu(); self.build_lighting()
         self.build_battery(); self.build_display(); self.build_diagnostics()
         self.nav=nav
         self.show_page('overview')
@@ -189,13 +196,17 @@ class MainWindow(Adw.ApplicationWindow):
 
     def build_overview(self) -> None:
         page=self.pages['overview']
-        hero=box(12); hero.add_css_class('hero')
-        line=box(12,True); heading=label('CURRENT PERFORMANCE PROFILE','eyebrow'); heading.set_hexpand(True); line.append(heading)
-        self.ac_label=label('AC power','status-pill'); self.ac_label.set_valign(Gtk.Align.CENTER); self.ac_label.set_hexpand(False); self.ac_label.set_halign(Gtk.Align.END); line.append(self.ac_label)
-        hero.append(line)
-        self.profile_hero=label('Balanced','hero-value'); hero.append(self.profile_hero)
-        hero.append(label('Current profile reported by the platform driver.','dim-label'))
-        page.append(hero)
+        self.profile_group=Adw.PreferencesGroup(title='Performance profile',description='Click a profile to apply it. Changes from the hardware button appear automatically.')
+        self.ac_label=label('AC power','status-pill'); self.profile_group.set_header_suffix(self.ac_label)
+        self.profile_tiles=ModeTiles(changed=self.apply_profile)
+        self.profile_choices: list[str]=[]
+        self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles)); page.append(self.profile_group)
+        self.fan_group=Adw.PreferencesGroup(title='Fan speed',description='Click a mode to apply it. Manual speeds apply when a slider stops moving. Failed writes restore automatic cooling.')
+        self.fan_mode=ModeTiles([('Auto','view-refresh-symbolic'),('Max','power-profile-performance-symbolic'),('Manual','preferences-system-symbolic')],changed=self.apply_fans)
+        self.fan_group.add(Adw.PreferencesRow(child=self.fan_mode))
+        self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan',45)
+        self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
+        page.append(self.fan_group)
         cards=box(16,True)
         cpu=box(12); cpu.add_css_class('metric-card'); cpu.set_hexpand(True)
         cpu.append(label('PROCESSOR','eyebrow'))
@@ -215,33 +226,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.gpu_switch=Adw.SwitchRow(title='Monitor NVIDIA GPU',subtitle='Shows temperature, VRAM, and power. Queries may wake the discrete GPU.')
         self.gpu_switch.connect('notify::active',self.gpu_toggled)
         group.add(self.gpu_switch)
-        cores=Adw.ExpanderRow(title='Per-core frequencies',subtitle='Sampled frequencies, grouped by physical CPU core')
-        self.core_grid=Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,max_children_per_line=8,min_children_per_line=4,row_spacing=6,column_spacing=6)
-        row=Adw.PreferencesRow(child=self.core_grid)
-        cores.add_row(row); group.add(cores)
-        self.core_labels: list[Gtk.Label]=[]
         page.append(group)
-
-    def build_performance(self) -> None:
-        page=self.pages['performance']
-        self.profile_group=Adw.PreferencesGroup(title='Performance Profiles',description='Select a performance profile, then apply it.')
-        self.profile_tiles=ModeTiles()
-        self.profile_choices: list[str]=[]
-        self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles))
-        row=Adw.ActionRow(title='Current profile',subtitle='Changes made by the hardware button appear automatically.')
-        self.current_profile=row
-        row.set_subtitle('Unavailable')
-        row.add_suffix(button('Apply profile',self.apply_profile,'suggested-action'))
-        self.profile_group.add(row); page.append(self.profile_group)
-        self.fan_group=Adw.PreferencesGroup(title='Fan Speed Control',description='Manual settings are drafts until applied. Failed writes restore automatic cooling.')
-        self.fan_mode=ModeTiles([('Auto','view-refresh-symbolic'),('Max','power-profile-performance-symbolic'),('Manual','preferences-system-symbolic')],changed=self.update_fan_sensitivity)
-        self.fan_group.add(Adw.PreferencesRow(child=self.fan_mode))
-        self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan',45)
-        self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
-        row=Adw.ActionRow(title='Current cooling',subtitle='Reading firmware state…')
-        self.fan_current=row
-        row.add_suffix(button('Apply fan settings',self.apply_fans,'suggested-action')); self.fan_group.add(row)
-        page.append(self.fan_group)
         self.extras=Adw.PreferencesGroup(title='Device options',description='Only controls exposed by the stock driver appear here.')
         self.extra_switches: dict[str, Adw.SwitchRow]={}
         for key,title in [('backlight_timeout','Backlight Timeout'),('boot_animation_sound','Boot Sound and Animation'),('lcd_override','LCD Override')]:
@@ -258,9 +243,27 @@ class MainWindow(Adw.ApplicationWindow):
         slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,1,99,1)
         slider.set_value(value); slider.set_draw_value(True); slider.set_value_pos(Gtk.PositionType.RIGHT)
         slider.set_size_request(220,-1); slider.set_valign(Gtk.Align.CENTER)
+        slider.connect('value-changed',self.fan_slider_moved)
         rpm=label('— RPM','dim-label'); rpm.set_width_chars(11)
         row.add_suffix(slider); row.add_suffix(rpm); self.fan_group.add(row)
         return slider,rpm
+
+    def build_cpu(self) -> None:
+        page=self.pages['cpu']
+        card=box(12); card.add_css_class('metric-card')
+        card.append(label('CORE FREQUENCY','eyebrow'))
+        self.core_summary=label('Waiting for a sample','dim-label'); card.append(self.core_summary)
+        self.core_bars=CoreBars(); card.append(self.core_bars)
+        page.append(card)
+        self.limit_group=Adw.PreferencesGroup(title='Frequency limits',description='Caps the highest frequency of each core type. The hardware service saves the caps and puts them back when another tool changes them.')
+        self.limit_rows: dict[str, Adw.SpinRow]={}
+        for kind,title in CORE_TITLES.items():
+            row=Adw.SpinRow.new_with_range(.1,10,.1); row.set_title(title); row.set_digits(1); row.set_visible(False)
+            self.limit_rows[kind]=row; self.limit_group.add(row)
+        self.limit_saved=Adw.ActionRow(title='Saved limits',subtitle='None')
+        self.limit_saved.add_suffix(button('Remove limits',self.remove_limits,'flat'))
+        self.limit_saved.add_suffix(button('Apply limits',self.apply_limits,'suggested-action'))
+        self.limit_group.add(self.limit_saved); page.append(self.limit_group)
 
     def build_lighting(self) -> None:
         page=self.pages['lighting']
@@ -434,18 +437,20 @@ class MainWindow(Adw.ApplicationWindow):
         if self.closed: return False
         if self.polling or self.pending or not self.on_screen(): return True
         self.polling=True
-        overview=self.stack.get_visible_child_name()=='overview'
-        gpu=self.gpu_enabled and overview
-        def work() -> tuple[Settings | None, Sample | None, Battery | None]:
+        page=self.stack.get_visible_child_name()
+        gpu=self.gpu_enabled and page=='overview'
+        def work() -> tuple[Settings | None, Sample | None, list[Core] | None, Battery | None]:
             try: state=Settings.parse(self.services.client.command('get_all_settings'))
             except (OSError,ValueError,RuntimeError): state=None
-            sample=self.services.sample(gpu) if overview else None
-            return state,sample,sample.battery if sample else self.services.battery()
-        def received(result: tuple[Settings | None, Sample | None, Battery | None]) -> None:
+            sample=self.services.sample(gpu) if page=='overview' else None
+            cores=self.services.cores() if page=='cpu' else None
+            return state,sample,cores,sample.battery if sample else self.services.battery()
+        def received(result: tuple[Settings | None, Sample | None, list[Core] | None, Battery | None]) -> None:
             self.polling=False
-            state,sample,battery=result
+            state,sample,cores,battery=result
             self.receive_state(state)
             if sample: self.receive_sample(sample)
+            if cores is not None: self.receive_cores(cores)
             self.receive_battery(battery)
         def failed(_: str) -> None:
             self.polling=False
@@ -471,6 +476,7 @@ class MainWindow(Adw.ApplicationWindow):
         ready=self.connected and not self.pending
         self.profile_group.set_sensitive(ready and 'thermal_profile' in features)
         self.fan_group.set_sensitive(ready and 'fan_speed' in features)
+        self.limit_group.set_sensitive(ready and 'cpu_frequency_limit' in features)
         self.light_group.set_sensitive(ready)
         self.light_apply.set_sensitive(ready and bool(self.state and self.state.lighting_modes))
         self.per_key_button.set_sensitive(ready and 'per_key_mode' in features)
@@ -492,19 +498,15 @@ class MainWindow(Adw.ApplicationWindow):
             if choices!=self.profile_choices:
                 self.profile_choices=choices
                 self.profile_tiles.set_choices([(PROFILES.get(v,v),PROFILE_ICONS.get(v,'preferences-system-symbolic')) for v in choices])
-                if current in choices: self.profile_tiles.set_selected(choices.index(current))
-            self.current_profile.set_subtitle(PROFILES.get(current,current or 'Unavailable'))
-            self.profile_hero.set_text(PROFILES.get(current,current or 'Monitoring'))
+            # Tiles show the platform's profile, including changes from the hardware button.
+            self.profile_tiles.set_selected(choices.index(current) if current in choices else -1)
             ac=state.ac_online
             self.ac_label.set_text('AC power' if ac is True else 'Battery power' if ac is False else 'Power source unknown')
             for key,widget in (('cpu',self.cpu_rpm),('gpu',self.gpu_rpm)):
                 widget.set_text(number_text(state.fan_rpm.get(key),' RPM'))
-            modes={state.fans.cpu.mode,state.fans.gpu.mode} if state.fans else set()
-            confirmed='Automatic' if modes=={FanMode.AUTO} else 'Maximum' if modes=={FanMode.MAX} else 'Manual or mixed control'
-            self.fan_current.set_subtitle(confirmed+' · selection above is an editing draft')
-            if not self.fan_draft_loaded:
-                self.fan_draft_loaded=True
-                self.load_fan_draft(state.fans)
+            # A slider that has not settled yet is an unsaved change, so it keeps its value.
+            if state.fans and not self.fan_timer: self.show_fans(state.fans)
+            self.show_limits(state)
             self.charge_limit.set_visible('battery_limiter' in features)
             self.charge_limit.set_active(state.switches['battery_limiter'])
             self.calibration.set_visible('battery_calibration' in features)
@@ -544,13 +546,34 @@ class MainWindow(Adw.ApplicationWindow):
         used,total=(gpu.memory_used,gpu.memory_total) if gpu else (None,None)
         self.vram.set_fraction(min(1,used/total) if used is not None and total else 0)
         self.vram.set_text(f'VRAM · {used/1024:.1f} / {total/1024:.1f} GiB' if used is not None and total else 'VRAM · unavailable' if self.gpu_enabled else 'VRAM · monitoring paused')
-        if len(sample.cores)!=len(self.core_labels):
-            while child:=self.core_grid.get_first_child(): self.core_grid.remove(child)
-            self.core_labels=[]
-            for _ in sample.cores:
-                pill=label('','core-pill'); self.core_labels.append(pill); self.core_grid.append(pill)
-        for i,(widget,value) in enumerate(zip(self.core_labels,sample.cores,strict=True)):
-            widget.set_text(f'Core {i+1:02d}  {value:.2f} GHz')
+
+    def receive_cores(self, cores: list[Core]) -> None:
+        limits=self.state.cpu_limits if self.state else {}
+        self.core_bars.sample(cores,{CoreKind(kind):limit.current[1]/1e6 for kind,limit in limits.items() if limit.current and kind in CoreKind},
+                              max((limit.maximum/1e6 for limit in limits.values()),default=0))
+        averages=[f'{CORE_TITLES.get(kind,"Cores").lower()} {sum(speeds)/len(speeds):.1f} GHz'
+                  for kind in CORE_TITLES if (speeds:=[core.ghz for core in cores if core.kind==kind])]
+        self.core_summary.set_text(('Now · '+' · '.join(averages)) if averages else f'{len(cores)} cores' if cores else 'Core frequencies are unavailable')
+
+    def show_limits(self, state: Settings) -> None:
+        """Show caps in effect; the limit fields are seeded only when the core types change."""
+        limits=state.cpu_limits
+        self.limit_group.set_visible(bool(limits))
+        if tuple(limits)!=self.limit_kinds:
+            self.limit_kinds=tuple(limits)
+            for kind,row in self.limit_rows.items():
+                row.set_visible(kind in limits)
+                if limit:=limits.get(kind):
+                    row.set_range(limit.minimum/1e6,limit.maximum/1e6)
+                    # Without a saved cap, start from the cap in effect, which another tool may have set.
+                    row.set_value((limit.limit or (limit.current[1] if limit.current else limit.maximum))/1e6)
+        for kind,limit in limits.items():
+            if spin:=self.limit_rows.get(kind):
+                low,high=limit.current or (0,0)
+                effect=ghz(high) if low==high else f'{low/1e6:.1f}–{ghz(high)}'
+                spin.set_subtitle(f'Hardware {limit.minimum/1e6:.1f}–{ghz(limit.maximum)} · in effect {effect if limit.current else "unavailable"}')
+        saved=[f'{CORE_TITLES.get(kind,kind)} {ghz(limit.limit)}' for kind,limit in limits.items() if limit.limit]
+        self.limit_saved.set_subtitle(' · '.join(saved) or 'None')
 
     def receive_battery(self, battery: Battery | None) -> None:
         capacity=battery.capacity if battery else None
@@ -595,23 +618,48 @@ class MainWindow(Adw.ApplicationWindow):
             return Settings.parse(reply) if isinstance(reply,dict) and 'available_features' in reply else None
         self.async_call(work,lambda result:finish(result,None),lambda message:finish(None,message))
 
-    def apply_profile(self, *_: object) -> None:
+    def apply_profile(self) -> None:
         index=self.profile_tiles.get_selected()
-        if index<len(self.profile_choices): self.mutate('set_thermal_profile',{'profile': self.profile_choices[index]})
-    def load_fan_draft(self, fans: Fans | None) -> None:
-        # Seeds the editing draft once from firmware; later refreshes must not discard edits.
-        modes={fans.cpu.mode,fans.gpu.mode} if fans else {FanMode.AUTO}
+        if index<len(self.profile_choices) and (profile:=self.profile_choices[index])!=(self.state.profile if self.state else None):
+            self.mutate('set_thermal_profile',{'profile': profile})
+    def show_fans(self, fans: Fans) -> None:
+        """Select the tile for the firmware fan mode; manual speeds also move the sliders."""
+        modes={fans.cpu.mode,fans.gpu.mode}
         self.fan_mode.set_selected(0 if modes=={FanMode.AUTO} else 1 if modes=={FanMode.MAX} else 2)
-        for slider,fan in zip((self.cpu_slider,self.gpu_slider),(fans.cpu,fans.gpu) if fans else (),strict=False):
+        for slider,fan in ((self.cpu_slider,fans.cpu),(self.gpu_slider,fans.gpu)):
             if fan.mode==FanMode.MANUAL and 0<fan.percent<100: slider.set_value(fan.percent)
         self.update_fan_sensitivity()
     def update_fan_sensitivity(self) -> None:
         manual=self.fan_mode.get_selected()==2
         self.cpu_slider.set_sensitive(manual); self.gpu_slider.set_sensitive(manual)
-    def apply_fans(self, *_: object) -> None:
+    def fan_slider_moved(self, *_: object) -> None:
+        if self.updating or self.fan_mode.get_selected()!=2: return
+        if self.fan_timer: GLib.source_remove(self.fan_timer)
+        self.fan_timer=GLib.timeout_add(FAN_SETTLE_MS,self.fan_slider_settled)
+    def fan_slider_settled(self) -> bool:
+        # A change in flight finishes first; the settled speeds follow it.
+        if self.pending: return GLib.SOURCE_CONTINUE
+        self.fan_timer=0
+        self.apply_fans()
+        return GLib.SOURCE_REMOVE
+    def apply_fans(self) -> None:
+        """Send the selected fan mode unless the firmware already runs it."""
+        self.update_fan_sensitivity()
         mode=self.fan_mode.get_selected()
         values=(0,0) if mode==0 else (100,100) if mode==1 else (round(self.cpu_slider.get_value()),round(self.gpu_slider.get_value()))
-        self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})
+        fans=self.state.fans if self.state else None
+        current=tuple(0 if fan.mode==FanMode.AUTO else 100 if fan.mode==FanMode.MAX else fan.percent for fan in (fans.cpu,fans.gpu)) if fans else None
+        if values!=current: self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})
+    def apply_limits(self, *_: object) -> None:
+        limits=self.state.cpu_limits if self.state else {}
+        # A cap at the hardware maximum is no cap.
+        params: dict[str, JSON]={kind:None if (khz:=round(self.limit_rows[kind].get_value()*10)*100000)>=limit.maximum else khz
+                                 for kind,limit in limits.items() if kind in self.limit_rows}
+        self.mutate('set_cpu_limits',params)
+    def remove_limits(self, *_: object) -> None:
+        def removed() -> None:
+            for row in self.limit_rows.values(): row.set_value(row.get_adjustment().get_upper())
+        self.mutate('set_cpu_limits',dict.fromkeys(self.state.cpu_limits if self.state else {}),removed)
     def charge_changed(self, row: Adw.SwitchRow, *_: object) -> None:
         if not self.updating: self.mutate('set_battery_limiter',{'enabled': row.get_active()})
     def extra_toggled(self, row: Adw.SwitchRow, _: GObject.ParamSpec, key: str) -> None:
@@ -760,6 +808,7 @@ class MainWindow(Adw.ApplicationWindow):
     def on_close(self, *_: object) -> bool:
         self.closed=True
         GLib.source_remove(self.timer)
+        if self.fan_timer: GLib.source_remove(self.fan_timer)
         # Closing never sends a hardware command. In-flight workers are daemon threads.
         self.workers.submit(self.services.client.close)
         return False

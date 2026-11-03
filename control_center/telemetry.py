@@ -4,6 +4,7 @@ import math
 import subprocess
 import time
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 # Newer drivers report average and instant power; older ones only power.draw.
@@ -14,6 +15,22 @@ GPU_QUERIES = (
      'power.max_limit,clocks.gr,clocks.mem'))
 # A longer gap between CPU samples would average over time the dashboard was not shown.
 MAX_SAMPLE_GAP = 5.0
+
+
+class CoreKind(StrEnum):
+    PERFORMANCE = 'performance'
+    EFFICIENCY = 'efficiency'
+
+
+# Hybrid Intel CPUs list each core type's logical CPUs here.
+CORE_LISTS = {CoreKind.PERFORMANCE: 'devices/cpu_core/cpus', CoreKind.EFFICIENCY: 'devices/cpu_atom/cpus'}
+
+
+@dataclass(frozen=True)
+class Core:
+    """One physical core: its type, or None on CPUs without core types, and average thread frequency in GHz."""
+    kind: CoreKind | None
+    ghz: float
 
 
 @dataclass(frozen=True)
@@ -43,7 +60,6 @@ class Sample:
     cpu_temperature: float | None
     memory_used: float | None
     memory_total: float | None
-    cores: list[float]
     gpu: Gpu | None
     battery: Battery | None
 
@@ -70,6 +86,15 @@ def number(value: str) -> float | None:
     return result if math.isfinite(result) and result >= 0 else None
 
 
+def cpu_list(value: str) -> list[int]:
+    """Parse a kernel CPU list such as '0-7,16', ignoring malformed text."""
+    cpus: list[int]=[]
+    for part in filter(None,value.split(',')):
+        first,_,last=part.partition('-')
+        if first.isdecimal() and (last or first).isdecimal(): cpus.extend(range(int(first),int(last or first)+1))
+    return cpus
+
+
 def gpu_fields(output: str) -> Gpu:
     values = output.strip().splitlines()[0].split(',') if output.strip() else []
     if len(values) != 9:
@@ -88,8 +113,7 @@ class Telemetry:
         self.gpu_queries: tuple[str, ...] = GPU_QUERIES
 
     def sample(self, gpu: bool=False) -> Sample:
-        return Sample(self.cpu_usage(), self.cpu_temperature(), *self.memory(), self.cores(),
-                      self.gpu() if gpu else None, self.battery())
+        return Sample(self.cpu_usage(), self.cpu_temperature(), *self.memory(), self.gpu() if gpu else None, self.battery())
 
     def cpu_usage(self) -> float | None:
         """Busy share since the previous call, or None on the first call and after a long gap."""
@@ -113,14 +137,19 @@ class Telemetry:
         if total and available is not None: return (total-available)/1024**2,total/1024**2
         return None,None
 
-    def cores(self) -> list[float]:
-        """Average frequency in GHz of each physical core, in topology order."""
-        cores: dict[tuple[str, str], list[float]]={}
+    def cores(self) -> list[Core]:
+        """Each physical core, performance cores first, then in topology order."""
+        kinds={cpu:kind for kind,listing in CORE_LISTS.items() for cpu in cpu_list(text(self.sys/listing))}
+        order=list(CoreKind)
+        cores: dict[tuple[int, int, int], tuple[CoreKind | None, list[float]]]={}
         for cpu in self.sys.glob('devices/system/cpu/cpu[0-9]*'):
-            identity=(text(cpu/'topology/physical_package_id'),text(cpu/'topology/core_id'))
+            package,core=text(cpu/'topology/physical_package_id'),text(cpu/'topology/core_id')
             speed=number(text(cpu/'cpufreq/scaling_cur_freq'))
-            if identity[1] and speed is not None: cores.setdefault(identity,[]).append(speed/1e6)
-        return [sum(v)/len(v) for _,v in sorted(cores.items(),key=lambda x:tuple(int(v or 0) for v in x[0]))]
+            if not core.isdecimal() or speed is None: continue
+            kind=kinds.get(int(cpu.name[3:]))
+            key=(order.index(kind) if kind else 0,int(package or 0),int(core))
+            cores.setdefault(key,(kind,[]))[1].append(speed/1e6)
+        return [Core(kind,sum(speeds)/len(speeds)) for _,(kind,speeds) in sorted(cores.items())]
 
     def cpu_temperature(self) -> float | None:
         temperatures=[]

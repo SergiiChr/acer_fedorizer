@@ -14,6 +14,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal, Required, TypedDict, get_args
 
+from .cpufreq import CoreLimit, CpuLimits
 from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, scale_rgb
 
 VERSION = '0.7.0'
@@ -60,6 +61,7 @@ class Settings(TypedDict, total=False):
     boot_animation_sound: bool
     lcd_override: bool
     usb_charging: int
+    cpu_limits: dict[str, CoreLimit]
 
 
 def read(path: Path, default: str = '') -> str:
@@ -296,6 +298,9 @@ class NativeControls:
         self.threshold = next(iter((self.root / 'class/power_supply').glob('*/charge_control_end_threshold')), None)
         if self.threshold:
             self.static_features.add('battery_limiter')
+        self.cpu = CpuLimits(self.root, self.state_file.with_name('cpu-limits.json'))
+        if self.cpu.groups:
+            self.static_features.add('cpu_frequency_limit')
         self.discover_hid = discover_hid
         self.keyboard: LampArrayDevice | None = None
         self.vendor: VendorKeyboard | None = None
@@ -365,6 +370,8 @@ class NativeControls:
             if self.threshold:
                 threshold = decimal(read(self.threshold))
                 out['battery_limiter'] = threshold is not None and threshold <= 80
+            if self.cpu.groups:
+                out['cpu_limits'] = self.cpu.state()
             return out
 
     def set_profile(self, profile: str) -> str:
@@ -562,6 +569,11 @@ class NativeControls:
             case Effect() if entry.mode in self.lighting_modes().get(target, []):
                 self._apply(target, entry)
 
+    def enforce_cpu_limits(self) -> None:
+        """Put saved CPU frequency caps back on CPUs where another tool, such as tuned, changed them."""
+        with self.lock:
+            self.cpu.enforce()
+
     def command(self, name: str, p: Mapping[str, object]) -> Mapping[str, object]:
         with self.lock:
             if name == 'ping':
@@ -587,6 +599,8 @@ class NativeControls:
                 return {'current': self.set_profile(profile)}
             if name == 'set_fan_speed':
                 self.set_fans(integer(p.get('cpu'), 0, 100), integer(p.get('gpu'), 0, 100))
+            elif name == 'set_cpu_limits':
+                self.cpu.set(self.cpu.parse(p))
             elif name == 'set_per_zone_mode':
                 self.set_zones(zone_colors([p.get(f'zone{i}') for i in range(1, 5)]))
             elif name == 'set_battery_limiter' and self.threshold:

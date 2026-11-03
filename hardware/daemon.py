@@ -17,6 +17,8 @@ from . import hotkey, uevents
 from .controls import VERSION, NativeControls
 
 MAX_MESSAGE = 65536
+# Tools such as tuned rewrite CPU caps on profile changes; 32 sysfs reads per check cost far less than a timer unit.
+CPU_LIMIT_INTERVAL = 10
 log = logging.getLogger('fedorizer')
 
 
@@ -76,6 +78,14 @@ def restore_in_background(controls: NativeControls) -> None:
     threading.Thread(target=controls.restore_lighting, daemon=True, name='restore-lighting').start()
 
 
+def keep_cpu_limits(controls: NativeControls, wake: threading.Event) -> None:
+    """Reassert saved CPU caps now, whenever wake is set, and every CPU_LIMIT_INTERVAL seconds."""
+    while True:
+        controls.enforce_cpu_limits()
+        wake.wait(CPU_LIMIT_INTERVAL)
+        wake.clear()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--inspect', action='store_true', help='Read capabilities without starting a server')
@@ -117,9 +127,15 @@ def main() -> None:
             os.chmod(args.socket, 0o600)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-    # systemctl reload (also sent after resume from sleep) replays saved lighting.
-    signal.signal(signal.SIGUSR1, lambda *_: restore_in_background(controls))
+    cpu_wake = threading.Event()
+    def reload(*_: object) -> None:
+        restore_in_background(controls)
+        cpu_wake.set()
+    # systemctl reload (also sent after resume from sleep) replays saved lighting and CPU caps.
+    signal.signal(signal.SIGUSR1, reload)
     restore_in_background(controls)
+    if controls.cpu.groups:
+        threading.Thread(target=keep_cpu_limits, args=(controls, cpu_wake), daemon=True, name='cpu-limits').start()
     threading.Thread(target=watch_hid, args=(controls,), daemon=True, name='hid-hotplug').start()
     hotkey.start(args.socket_owner)
     try:

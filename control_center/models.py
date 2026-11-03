@@ -141,6 +141,26 @@ class LightingDraft:
 
 
 @dataclass(frozen=True)
+class CoreLimit:
+    """Frequency cap of one core type in kHz: hardware range, saved cap or None, and the lowest and highest cap in effect."""
+    minimum: int
+    maximum: int
+    limit: int | None
+    current: tuple[int, int] | None
+
+    @classmethod
+    def parse(cls, value: JSON) -> 'CoreLimit | None':
+        data = mapping(value)
+        minimum, maximum, limit = integer(data.get('minimum')), integer(data.get('maximum')), integer(data.get('limit'))
+        raw = data.get('current')
+        current = [number for item in (raw if isinstance(raw, list) else []) if (number := integer(item)) is not None]
+        if minimum is None or maximum is None or not 0 < minimum <= maximum:
+            return None
+        return cls(minimum, maximum, limit if limit is not None and minimum <= limit <= maximum else None,
+                   (min(current), max(current)) if current else None)
+
+
+@dataclass(frozen=True)
 class Settings:
     """A get_all_settings reply, with defaults for anything the service did not report."""
     version: str = '—'
@@ -160,6 +180,8 @@ class Settings:
     # Editing draft per target in lighting_modes, seeded from its last successful command.
     lighting: Mapping[str, LightingDraft] = field(default_factory=dict)
     per_key: PerKey = field(default_factory=PerKey)
+    # Frequency caps by core type, 'performance' and 'efficiency', when the CPU reports core types.
+    cpu_limits: Mapping[str, CoreLimit] = field(default_factory=dict)
 
     @classmethod
     def parse(cls, value: JSON) -> 'Settings':
@@ -188,7 +210,8 @@ class Settings:
             lighting_modes=modes,
             lighting={target: LightingDraft.from_state(mapping(lighting.get(target)), target_modes)
                       for target, target_modes in modes.items()},
-            per_key=PerKey.parse(lighting.get('per_key')))
+            per_key=PerKey.parse(lighting.get('per_key')),
+            cpu_limits={kind: limit for kind, item in mapping(value.get('cpu_limits')).items() if (limit := CoreLimit.parse(item))})
 
 
 @dataclass(frozen=True)

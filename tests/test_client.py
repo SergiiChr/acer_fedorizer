@@ -22,7 +22,7 @@ from control_center.models import (
     full_key_map,
     mapping,
 )
-from control_center.telemetry import Telemetry, gpu_fields
+from control_center.telemetry import Core, CoreKind, Telemetry, gpu_fields
 
 type Handler = Callable[[socket.socket,io.BufferedReader],object]
 
@@ -162,6 +162,19 @@ class ModelTests(unittest.TestCase):
                     usage=telemetry.sample().cpu_usage
                     if line.startswith('cpu 20'): self.assertAlmostEqual(usage or 0,20)
             self.assertIsNone(usage)
+    def test_core_frequency_averages_each_physical_core_and_tags_its_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for kind,cpus in (('cpu_core','0-3'),('cpu_atom','4-5')):
+                (root/'devices'/kind).mkdir(parents=True); (root/'devices'/kind/'cpus').write_text(cpus+'\n')
+            # Two hyper-threaded performance cores, then two efficiency cores listed before them in sysfs order.
+            for cpu,core_id,khz in ((4,8,'1200000'),(5,9,'1400000'),(0,0,'2000000'),(1,0,'3000000'),(2,4,'4000000'),(3,4,'4000000')):
+                cpufreq=root/f'devices/system/cpu/cpu{cpu}'
+                (cpufreq/'topology').mkdir(parents=True); (cpufreq/'cpufreq').mkdir()
+                (cpufreq/'topology/physical_package_id').write_text('0'); (cpufreq/'topology/core_id').write_text(str(core_id))
+                (cpufreq/'cpufreq/scaling_cur_freq').write_text(khz)
+            self.assertEqual([Core(CoreKind.PERFORMANCE,2.5),Core(CoreKind.PERFORMANCE,4.0),
+                              Core(CoreKind.EFFICIENCY,1.2),Core(CoreKind.EFFICIENCY,1.4)],Telemetry(tmp,tmp).cores())
     def test_battery_estimate_uses_consistent_units(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             battery=Path(tmp)/'class/power_supply/BAT0'; battery.mkdir(parents=True)
