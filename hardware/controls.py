@@ -16,6 +16,7 @@ from typing import Literal, Required, TypedDict, get_args
 
 from .cpufreq import CoreLimit, CpuLimits
 from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, scale_rgb
+from .power import PackagePower
 
 VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
@@ -62,6 +63,7 @@ class Settings(TypedDict, total=False):
     lcd_override: bool
     usb_charging: int
     cpu_limits: dict[str, CoreLimit]
+    cpu_power: float
 
 
 def read(path: Path, default: str = '') -> str:
@@ -301,6 +303,7 @@ class NativeControls:
         self.cpu = CpuLimits(self.root, self.state_file.with_name('cpu-limits.json'))
         if self.cpu.groups:
             self.static_features.add('cpu_frequency_limit')
+        self.power = PackagePower(self.root)
         self.discover_hid = discover_hid
         self.keyboard: LampArrayDevice | None = None
         self.vendor: VendorKeyboard | None = None
@@ -313,6 +316,9 @@ class NativeControls:
             saved = {}
         self.lighting = Lighting.parse(saved)
         self.lighting_json = self.lighting.to_json()
+        self.profile = ''
+        self.fans: dict[str, FanState] | None = None
+        self.refresh_firmware()
 
     def find_hid(self) -> None:
         """Refresh HID handles; device nodes change after a reconnect or resume."""
@@ -347,9 +353,30 @@ class NativeControls:
         mains = [p for p in supplies if read(p / 'type') in ('Mains', 'USB', 'USB_C') and (p / 'online').exists()]
         return any(read(p / 'online') == '1' for p in mains) if mains else None
 
+    def refresh_firmware(self) -> None:
+        """Re-read the profile and fan settings that settings() reports.
+        On the PH16-72 each of these reads stalls every CPU for about 5 ms in firmware, so polls use these copies.
+        """
+        with self.lock:
+            self.profile = read(self.profile_dir / 'profile') if self.profile_dir else ''
+            self.refresh_fans()
+
+    def refresh_fans(self) -> None:
+        """Re-read the fan settings that settings() reports; only a manual fan needs its pwm value."""
+        with self.lock:
+            self.fans = {name: fan_state(enable := read(self.hwmon / f'pwm{i}_enable'),
+                                         read(self.hwmon / f'pwm{i}', '0') if enable == '1' else '0')
+                         for i, name in ((1, 'cpu'), (2, 'gpu'))} if self.hwmon else None
+
+    def update_profile(self, profile: str) -> None:
+        """Record a profile just read from its file; fans are re-read only on a change, as firmware may reset them."""
+        with self.lock:
+            if profile != self.profile:
+                self.profile = profile
+                self.refresh_fans()
+
     def settings(self) -> Settings:
         with self.lock:
-            profile = read(self.profile_dir / 'profile') if self.profile_dir else ''
             choices = read(self.profile_dir / 'choices').split() if self.profile_dir else []
             rpm = {name: decimal(read(self.hwmon / f'fan{i}_input')) if self.hwmon else None
                    for i, name in ((1, 'cpu'), (2, 'gpu'))}
@@ -357,11 +384,10 @@ class NativeControls:
                 'version': VERSION, 'driver_version': 'Stock Linux acer_wmi + HID',
                 'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
                 'available_features': sorted(self.features), 'ac_online': self.ac_online(),
-                'thermal_profile': {'current': profile, 'available': choices}, 'fan_rpm': rpm,
+                'thermal_profile': {'current': self.profile, 'available': choices}, 'fan_rpm': rpm,
                 'lighting_modes': self.lighting_modes(), 'lighting_state': self.lighting_json}
-            if self.hwmon:
-                out['fans'] = {name: fan_state(read(self.hwmon / f'pwm{i}_enable'), read(self.hwmon / f'pwm{i}', '0'))
-                               for i, name in ((1, 'cpu'), (2, 'gpu'))}
+            if self.fans is not None:
+                out['fans'] = self.fans
             for key in SWITCHES:
                 if key in self.extra_files:
                     out[key] = read(self.extra_files[key]) == '1'
@@ -372,16 +398,20 @@ class NativeControls:
                 out['battery_limiter'] = threshold is not None and threshold <= 80
             if self.cpu.groups:
                 out['cpu_limits'] = self.cpu.state()
+            if (watts := self.power.read()) is not None:
+                out['cpu_power'] = watts
             return out
 
     def set_profile(self, profile: str) -> None:
         if not self.profile_dir or profile not in read(self.profile_dir / 'choices').split():
             raise ValueError('Unsupported performance profile')
-        # Firmware owns AC restrictions. Read its accepted state after writing.
-        self._write(self.profile_dir / 'profile', profile)
-        actual = read(self.profile_dir / 'profile')
-        if actual != profile:
-            raise RuntimeError(f'Firmware selected {actual!r} instead of {profile!r}')
+        # Firmware owns AC restrictions and may reset fans, so read its accepted state after writing.
+        try:
+            self._write(self.profile_dir / 'profile', profile)
+        finally:
+            self.update_profile(read(self.profile_dir / 'profile'))
+        if self.profile != profile:
+            raise RuntimeError(f'Firmware selected {self.profile!r} instead of {profile!r}')
 
     def auto_fans(self) -> None:
         """Hand both fans back to firmware control; each fan is attempted even if the other fails."""
@@ -406,6 +436,8 @@ class NativeControls:
         except Exception:
             self.auto_fans()
             raise
+        finally:
+            self.refresh_fans()
 
     def _apply_keyboard(self, effect: Effect) -> None:
         if effect.mode == 0 and self.keyboard:
@@ -569,7 +601,7 @@ class NativeControls:
                 self._apply(target, entry)
 
     def enforce_cpu_limits(self) -> None:
-        """Put saved CPU frequency caps back on CPUs where another tool, such as tuned, changed them."""
+        """Put saved CPU frequency caps back on CPUs where another tool, such as tuned, raised them."""
         with self.lock:
             self.cpu.enforce()
 
@@ -596,8 +628,7 @@ class NativeControls:
                 if not isinstance(profile, str):
                     raise ValueError('Unsupported performance profile')
                 self.set_profile(profile)
-                return self.settings()
-            if name == 'set_fan_speed':
+            elif name == 'set_fan_speed':
                 self.set_fans(integer(p.get('cpu'), 0, 100), integer(p.get('gpu'), 0, 100))
             elif name == 'set_cpu_limits':
                 self.cpu.set(self.cpu.parse(p))

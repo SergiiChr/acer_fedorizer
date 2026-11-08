@@ -34,7 +34,8 @@ def invalidate(widget: Gtk.Widget) -> None:
 def capture_pages(app: Application, directory: str | Path) -> bool:
     directory=Path(directory).resolve()
     directory.mkdir(parents=True,exist_ok=True)
-    names=[key for key,*_ in PAGES]+['keyboard','credits']
+    # 'cpu' is the dashboard scrolled to its CPU section.
+    names=[key for key,*_ in PAGES]+['cpu','keyboard','credits']
     def next_page(index: int = 0) -> bool:
         if index>=len(names):
             app.window.close(); app.quit(); return False
@@ -53,10 +54,14 @@ def capture_pages(app: Application, directory: str | Path) -> bool:
         target: Gtk.Window | None
         if name=='keyboard': app.window.open_editor(); target=app.window.editor
         elif name=='credits': target=app.window.show_credits()
-        else: app.window.show_page(name); target=app.window
+        else: app.window.show_page('overview' if name=='cpu' else name); target=app.window
         # Core samples otherwise arrive with the two-second poll; several moving samples show averages apart from the bars.
-        if name=='cpu':
+        if name in ('overview','cpu'):
             for _ in range(4): app.window.receive_cores(app.window.services.cores())
+        scroll=app.window.core_card.get_ancestor(Gtk.ScrolledWindow)
+        if isinstance(scroll,Gtk.ScrolledWindow) and (content:=scroll.get_child()):
+            found,bounds=app.window.core_card.compute_bounds(content)
+            scroll.get_vadjustment().set_value(bounds.get_y()-24 if name=='cpu' and found else 0)
         if target: invalidate(target)
         def capture() -> bool:
             try:

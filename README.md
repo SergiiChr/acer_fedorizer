@@ -36,8 +36,8 @@ With Secure Boot you may need to enroll your distribution's DKMS signing key bef
 
 ## Screens
 
-- **Dashboard:** stock driver profiles and fan modes (Auto, Max, Manual) that apply on one click, fan RPM, CPU use and temperature, memory, optional NVIDIA temperature, VRAM, and power, and the device options your driver exposes. Manual fan speeds apply once a slider stops moving. If a fan write fails or the service stops for any reason, fans return to automatic. GPU monitoring starts off because it may wake the discrete GPU. Sampling pauses while the window is minimized and stops when it closes.
-- **CPU:** one bar per physical core showing its current frequency over its 10-second average, with performance and efficiency cores in different colors and dashed lines at their caps. Separate frequency caps for performance and efficiency cores apply with a button; a cap at the hardware maximum means no cap.
+- **Dashboard:** stock driver profiles and fan modes (Auto, Max, Manual) that apply on one click, fan RPM, CPU and optional NVIDIA temperature with usage and power below it, memory, VRAM, the CPU frequency section, and the device options your driver exposes. Manual fan speeds apply once a slider stops moving. If a fan write fails or the service stops for any reason, fans return to automatic. GPU monitoring starts off because it may wake the discrete GPU; its switch is in the GPU card. Sampling pauses while the window is minimized and stops when it closes.
+- **CPU frequency (on the Dashboard):** one bar per physical core showing its current frequency over its 10-second average, with performance and efficiency cores in different colors and dashed lines at their caps. Separate frequency caps for performance and efficiency cores apply with a button; a cap at the hardware maximum means no cap.
 - **Lighting:** one editor for Keyboard, WASD, Logo, and Bar, with a separate unsaved draft per device. Pick a firmware effect, color (picker, hex, or swatches), speed, brightness, and direction; options a device does not support are disabled. WASD can follow the keyboard, all lights can be set together, and the keyboard offers four zones or a per-key editor drawn from its real LED layout. Apply sends the selected device's draft.
 - **Battery:** charge, time estimates when available, health and cycles, and only the charge controls your driver exposes.
 - **Display:** Native SDR color management on a supported built-in Mutter panel; keeps your monitor setup and is off while HDR is on.
@@ -45,7 +45,9 @@ With Secure Boot you may need to enroll your distribution's DKMS signing key bef
 
 The hardware service keeps running after the window closes, waiting for commands and the Predator button.
 It does no dashboard or GPU monitoring, and closing the window does not reset any setting.
-Saved CPU frequency caps are reapplied at start and after sleep, and put back within ten seconds when another tool, such as tuned, changes them.
+Each read of the performance profile or fan modes briefly freezes every CPU on this laptop, so the service reads them only at start, after its own changes, after sleep, and when the kernel reports a profile change; a fan mode set by another tool shows after the next of these.
+Saved CPU frequency caps are reapplied at start and after sleep, and put back within ten seconds when another tool, such as tuned, raises them.
+A lower cap set by another tool, such as NVIDIA's `nvidia-powerd` moving power to the GPU during games, stays, and the Dashboard marks it as lowered by another tool.
 Lighting shown in the app is the last successful command, not a reading from the device.
 The service reapplies it at start, after sleep, and when a lighting device reconnects.
 
@@ -56,7 +58,7 @@ Screenshots are real app renders with labelled sample data, not live measurement
 ![Dashboard](docs/screenshots/overview.png)
 ![Lighting](docs/screenshots/lighting.png)
 
-[CPU](docs/screenshots/cpu.png) · [Battery](docs/screenshots/battery.png) ·
+[CPU frequency](docs/screenshots/cpu.png) · [Battery](docs/screenshots/battery.png) ·
 [Display](docs/screenshots/display.png) · [System Settings](docs/screenshots/diagnostics.png) ·
 [Per-key editor](docs/screenshots/keyboard.png) · [Credits](docs/screenshots/credits.png)
 

@@ -62,6 +62,34 @@ class NativeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_cpu_power_averages_package_energy_across_a_counter_wrap_at_most_once_a_second(self) -> None:
+        domain = self.root / 'class/powercap/intel-rapl:0'
+        domain.mkdir(parents=True)
+        for name, value in (('name', 'package-0'), ('energy_uj', '262143000000'), ('max_energy_range_uj', '262143328850')):
+            (domain / name).write_text(value + '\n')
+        controls = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
+        with patch('hardware.power.time.clock_gettime', side_effect=[100.0, 102.0, 102.5]):
+            self.assertNotIn('cpu_power', controls.settings())
+            # 328851 µJ up to the wrap and 89671150 µJ after it is 90 J over 2 s.
+            (domain / 'energy_uj').write_text('89671150\n')
+            self.assertEqual(45.0, controls.settings()['cpu_power'])
+            (domain / 'energy_uj').write_text('99671150\n')
+            self.assertEqual(45.0, controls.settings()['cpu_power'])
+
+    def test_cpu_power_starts_over_after_sleep_instead_of_averaging_across_it(self) -> None:
+        domain = self.root / 'class/powercap/intel-rapl:0'
+        domain.mkdir(parents=True)
+        for name, value in (('name', 'package-0'), ('energy_uj', '1000000'), ('max_energy_range_uj', '262143328850')):
+            (domain / name).write_text(value + '\n')
+        controls = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
+        with patch('hardware.power.time.clock_gettime', side_effect=[100.0, 3700.0, 3702.0]):
+            controls.settings()
+            # An hour asleep at 2 W, then 30 W for 2 s.
+            (domain / 'energy_uj').write_text('8201000000\n')
+            self.assertNotIn('cpu_power', controls.settings())
+            (domain / 'energy_uj').write_text('8261000000\n')
+            self.assertEqual(30.0, controls.settings()['cpu_power'])
+
     def test_discovery_accepts_stock_acer_and_rejects_unrelated_provider(self) -> None:
         self.assertIn('thermal_profile', self.controls.features)
         self.assertIn('fan_speed', self.controls.features)
@@ -69,13 +97,37 @@ class NativeTests(unittest.TestCase):
         other = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
         self.assertNotIn('thermal_profile', other.features)
 
-    def test_profile_reads_external_changes_and_reads_do_not_write(self) -> None:
+    def test_polls_report_profile_and_fans_from_memory_until_a_change_is_signalled(self) -> None:
+        # On the PH16-72 each real read of these files stalls every CPU for about 5 ms.
+        (self.hwmon / 'pwm1_enable').write_text('0')
         for choice in CHOICES:
             (self.profile / 'profile').write_text(choice)
             with patch.object(self.controls, '_write', side_effect=AssertionError('read caused write')):
-                self.assertEqual({'current': choice, 'available': CHOICES}, self.controls.settings()['thermal_profile'])
+                self.assertNotEqual(choice, self.controls.settings()['thermal_profile']['current'])
+                self.controls.refresh_firmware()
+                settings = self.controls.settings()
+            self.assertEqual({'current': choice, 'available': CHOICES}, settings['thermal_profile'])
+            self.assertEqual({'mode': 'max', 'percent': 100}, settings['fans']['cpu'])
         with self.assertRaises(ValueError):
             self.controls.command('set_thermal_profile', {'profile': 'turbo'})
+
+    def test_a_signalled_profile_change_rereads_fans_but_an_unchanged_profile_does_not(self) -> None:
+        (self.hwmon / 'pwm1_enable').write_text('0')
+        self.controls.update_profile('balanced')
+        self.assertEqual({'mode': 'auto', 'percent': 0}, self.controls.settings()['fans']['cpu'])
+        self.controls.update_profile('performance')
+        settings = self.controls.settings()
+        self.assertEqual('performance', settings['thermal_profile']['current'])
+        self.assertEqual({'mode': 'max', 'percent': 100}, settings['fans']['cpu'])
+
+    def test_profile_change_shows_fans_the_firmware_reset_with_it(self) -> None:
+        (self.hwmon / 'pwm1_enable').write_text('0')
+        self.controls.refresh_firmware()
+        with patch.object(self.controls, '_write', side_effect=lambda path, value: (
+                Path(path).write_text(str(value)), (self.hwmon / 'pwm1_enable').write_text('2'))):
+            reply = self.controls.command('set_thermal_profile', {'profile': 'performance'})
+        assert isinstance(reply, dict)
+        self.assertEqual({'mode': 'auto', 'percent': 0}, reply['fans']['cpu'])
 
     def test_profile_change_replies_with_the_new_settings(self) -> None:
         reply = self.controls.command('set_thermal_profile', {'profile': 'performance'})
@@ -568,6 +620,15 @@ class CpuLimitTests(unittest.TestCase):
         self.limits[2].write_text('2000000\n')
         self.controls.enforce_cpu_limits()
         self.assertEqual(['4000000', '4000000', '2000000\n', '4100000'], [p.read_text() for p in self.limits])
+
+    def test_reassert_leaves_caps_another_tool_lowered(self) -> None:
+        # nvidia-powerd lowers every CPU's scaling_max_freq to values off the 100 MHz grid while the GPU is busy.
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        self.limits[0].write_text('2873000\n')
+        self.limits[2].write_text('2873000\n')
+        self.limits[3].write_text('3320000\n')
+        self.controls.enforce_cpu_limits()
+        self.assertEqual(['2873000\n', '4000000', '2873000\n', '3000000'], [p.read_text() for p in self.limits])
 
     def test_reassert_writes_nothing_when_caps_hold(self) -> None:
         self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})

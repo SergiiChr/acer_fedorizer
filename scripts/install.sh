@@ -63,7 +63,7 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/python3 -m hardware.daemon --socket-owner $SOCKET_UID
 # Hand fans back to firmware control after every stop, including a crash.
 ExecStopPost=/usr/bin/python3 -m hardware.daemon --auto-fans
-# Replays saved lighting and rechecks CPU caps; the resume unit uses it after sleep.
+# Replays saved lighting, rechecks CPU caps, and re-reads profile and fan settings; the resume unit uses it after sleep.
 ExecReload=/usr/bin/kill -USR1 \$MAINPID
 Restart=on-failure
 RestartSec=3

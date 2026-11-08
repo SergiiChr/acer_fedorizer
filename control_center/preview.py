@@ -52,7 +52,7 @@ class PreviewClient:
         for kind,maximum in CORE_MAXIMUMS.items():
             cap=self.cpu_limits[kind] or maximum
             limits[kind]={'minimum': 800000,'maximum': maximum,'limit': self.cpu_limits[kind],'current': [cap,cap]}
-        return {**self.static,**self.switches,'fans': self.fans,'lighting_state': copy.deepcopy(self.lighting),'cpu_limits': limits,
+        return {**self.static,**self.switches,'fans': self.fans,'lighting_state': copy.deepcopy(self.lighting),'cpu_limits': limits,'cpu_power': 45.3,
                 'thermal_profile': {'current': self.profile,'available': ['low-power','quiet','balanced','balanced-performance','performance']}}
 
     def command(self, command: str, params: dict[str, JSON] | None=None) -> JSON:

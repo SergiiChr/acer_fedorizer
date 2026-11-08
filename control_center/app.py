@@ -23,6 +23,7 @@ from .models import (
     ZONE_COLORS,
     ZONE_MODE,
     CoreKind,
+    Fan,
     FanMode,
     Fans,
     Lamp,
@@ -38,8 +39,7 @@ from .services import Services
 from .telemetry import Battery, Core, Sample
 from .widgets import CoreBars, HistoryChart, KeyboardCanvas, ModeTiles, box, color_rgba, hex_rgba, label
 
-PAGES=[('overview','Dashboard','view-grid-symbolic','Performance profile, cooling, and system status'),
-       ('cpu','CPU','computer-symbolic','Core frequencies and frequency limits'),
+PAGES=[('overview','Dashboard','view-grid-symbolic','Performance profile, cooling, CPU frequency, and system status'),
        ('lighting','Lighting','keyboard-brightness-symbolic','Keyboard, WASD, lid logo, and rear light bar settings'),
        ('battery','Battery','battery-good-symbolic','Charge level, battery health, and charging controls'),
        ('display','Display','video-display-symbolic','Built-in display color management'),
@@ -177,7 +177,7 @@ class MainWindow(Adw.ApplicationWindow):
             clamp=Adw.Clamp(maximum_size=1040,tightening_threshold=850,child=page)
             scroll.set_child(clamp)
             self.stack.add_named(scroll,key); self.pages[key]=page
-        self.build_overview(); self.build_cpu(); self.build_lighting()
+        self.build_overview(); self.build_lighting()
         self.build_battery(); self.build_display(); self.build_diagnostics()
         self.nav=nav
         self.show_page('overview')
@@ -213,24 +213,27 @@ class MainWindow(Adw.ApplicationWindow):
         page.append(self.fan_group)
         cards=box(16,True)
         cpu=box(12); cpu.add_css_class('metric-card'); cpu.set_hexpand(True)
-        cpu.append(label('PROCESSOR','eyebrow'))
+        # Both card headings share a height, so the GPU switch does not push that card's values below the CPU card's.
+        headings=Gtk.SizeGroup(mode=Gtk.SizeGroupMode.VERTICAL)
+        cpu_title=label('CPU','eyebrow'); headings.add_widget(cpu_title); cpu.append(cpu_title)
         self.cpu_value=label('—','metric'); cpu.append(self.cpu_value)
         self.cpu_detail=label('Waiting for a sample','dim-label'); cpu.append(self.cpu_detail)
         self.cpu_chart=HistoryChart(); cpu.append(self.cpu_chart)
         self.cpu_memory=label('Memory · —','dim-label'); cpu.append(self.cpu_memory)
         cards.append(cpu)
-        gpu=box(12); gpu.add_css_class('metric-card'); gpu.set_hexpand(True)
-        gpu.append(label('NVIDIA GRAPHICS','eyebrow'))
+        gpu=box(12); gpu.add_css_class('metric-card'); gpu.set_hexpand(True); self.gpu_card=gpu
+        heading=box(12,True); headings.add_widget(heading)
+        gpu_title=label('NVIDIA GRAPHICS','eyebrow'); gpu_title.set_hexpand(True); heading.append(gpu_title)
+        self.gpu_switch=Gtk.Switch(valign=Gtk.Align.CENTER,tooltip_text='Monitor NVIDIA GPU. Queries may wake the discrete GPU.')
+        self.gpu_switch.update_property([Gtk.AccessibleProperty.LABEL],['Monitor NVIDIA GPU'])
+        self.gpu_switch.connect('notify::active',self.gpu_toggled)
+        heading.append(self.gpu_switch); gpu.append(heading)
         self.gpu_value=label('Paused','metric'); gpu.append(self.gpu_value)
         self.gpu_detail=label('Monitoring is off to save power','dim-label'); gpu.append(self.gpu_detail)
         self.gpu_chart=HistoryChart((.64,.57,.88)); gpu.append(self.gpu_chart)
         self.vram=Gtk.ProgressBar(show_text=True,text='VRAM · monitoring paused'); gpu.append(self.vram)
         cards.append(gpu); page.append(cards)
-        group=Adw.PreferencesGroup()
-        self.gpu_switch=Adw.SwitchRow(title='Monitor NVIDIA GPU',subtitle='Shows temperature, VRAM, and power. Queries may wake the discrete GPU.')
-        self.gpu_switch.connect('notify::active',self.gpu_toggled)
-        group.add(self.gpu_switch)
-        page.append(group)
+        self.build_cpu(page)
         self.extras=Adw.PreferencesGroup(title='Device options',description='Only controls exposed by the stock driver appear here.')
         self.extra_switches: dict[str, Adw.SwitchRow]={}
         for key,title in [('backlight_timeout','Backlight Timeout'),('boot_animation_sound','Boot Sound and Animation'),('lcd_override','LCD Override')]:
@@ -252,14 +255,13 @@ class MainWindow(Adw.ApplicationWindow):
         row.add_suffix(slider); row.add_suffix(rpm); self.fan_group.add(row)
         return slider,rpm
 
-    def build_cpu(self) -> None:
-        page=self.pages['cpu']
-        card=box(12); card.add_css_class('metric-card')
+    def build_cpu(self, page: Gtk.Box) -> None:
+        card=box(12); card.add_css_class('metric-card'); self.core_card=card
         card.append(label('CORE FREQUENCY','eyebrow'))
         self.core_summary=label('Waiting for a sample','dim-label'); card.append(self.core_summary)
         self.core_bars=CoreBars(); card.append(self.core_bars)
         page.append(card)
-        self.limit_group=Adw.PreferencesGroup(title='Frequency limits',description='Caps the highest frequency of each core type. The hardware service saves the caps and puts them back when another tool changes them.')
+        self.limit_group=Adw.PreferencesGroup(title='Frequency limits',description='Caps the highest frequency of each core type. The hardware service saves the caps and puts them back when another tool raises them.')
         self.limit_rows: dict[CoreKind, Adw.SpinRow]={}
         for kind,title in CORE_TITLES.items():
             row=Adw.SpinRow.new_with_range(.1,10,.1); row.set_title(title); row.set_digits(1); row.set_visible(False)
@@ -447,7 +449,7 @@ class MainWindow(Adw.ApplicationWindow):
             try: state=Settings.parse(self.services.client.command('get_all_settings'))
             except (OSError,ValueError,RuntimeError): state=None
             sample=self.services.sample(gpu) if page=='overview' else None
-            cores=self.services.cores() if page=='cpu' else None
+            cores=self.services.cores() if page=='overview' else None
             return state,sample,cores,sample.battery if sample else self.services.battery()
         def received(result: tuple[Settings | None, Sample | None, list[Core] | None, Battery | None]) -> None:
             self.polling=False
@@ -539,8 +541,9 @@ class MainWindow(Adw.ApplicationWindow):
         finally: self.updating=False
 
     def receive_sample(self, sample: Sample) -> None:
-        self.cpu_value.set_text(number_text(sample.cpu_usage,'%',1,missing='Sampling…'))
-        self.cpu_detail.set_text('Temperature '+number_text(sample.cpu_temperature,'°C'))
+        self.cpu_value.set_text(number_text(sample.cpu_temperature,'°C'))
+        power=self.state.cpu_power if self.state and self.connected else None
+        self.cpu_detail.set_text('Usage '+number_text(sample.cpu_usage,'%',missing='sampling…')+(f' · {power:.1f} W' if power is not None else ''))
         self.cpu_memory.set_text('Memory · '+number_text(sample.memory_used,' GiB',1)+' / '+number_text(sample.memory_total,' GiB',1))
         self.cpu_chart.sample(sample.cpu_usage)
         gpu=sample.gpu if self.gpu_enabled else None
@@ -574,6 +577,8 @@ class MainWindow(Adw.ApplicationWindow):
                     row.set_value((limit.limit or (limit.current[1] if limit.current else limit.maximum))/1e6)
         for kind,limit in limits.items():
             effect=ghz(*limit.current) if limit.current else 'unavailable'
+            # The service only lowers caps that other tools raise, so a lower cap in effect, such as from nvidia-powerd, stays.
+            if limit.current and limit.current[1]<(limit.limit or limit.maximum): effect+=', lowered by another tool'
             self.limit_rows[kind].set_subtitle(f'Hardware {ghz(limit.minimum,limit.maximum)} · in effect {effect}')
         saved=[f'{CORE_TITLES[kind]} {ghz(limit.limit)}' for kind,limit in limits.items() if limit.limit]
         self.limit_saved.set_subtitle(' · '.join(saved) or 'None')
@@ -615,10 +620,9 @@ class MainWindow(Adw.ApplicationWindow):
             if error is not None and failed: failed(error)
             # Failures need a fresh read.
             if result is None: self.refresh()
-        def work() -> Settings | None:
+        def work() -> Settings:
             # Setting commands reply with the settings they produced.
-            reply=self.services.client.command(command,params)
-            return Settings.parse(reply) if isinstance(reply,dict) and 'available_features' in reply else None
+            return Settings.parse(self.services.client.command(command,params))
         self.async_call(work,lambda result:finish(result,None),lambda message:finish(None,message))
 
     def apply_profile(self) -> None:
@@ -652,7 +656,7 @@ class MainWindow(Adw.ApplicationWindow):
         """Send the selected fan mode unless the firmware already runs it."""
         self.update_fan_sensitivity()
         mode=self.selected_fan_mode()
-        values=(0,0) if mode==FanMode.AUTO else (100,100) if mode==FanMode.MAX else (round(self.cpu_slider.get_value()),round(self.gpu_slider.get_value()))
+        values=tuple(Fan(mode,round(slider.get_value())).speed for slider in (self.cpu_slider,self.gpu_slider))
         fans=self.state.fans if self.state else None
         current=(fans.cpu.speed,fans.gpu.speed) if fans else None
         if values!=current: self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})

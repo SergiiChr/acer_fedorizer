@@ -27,6 +27,8 @@ Observed host: Predator PH16-72, BIOS V1.10, Fedora kernel 7.2.8-200.fc44.x86_64
 
 - Stock Acer platform profiles: low-power, quiet, balanced, balanced-performance, performance.
 - Stock Acer hwmon: fan1/2, pwm1/2, pwm1/2_enable. PWM is 0–255; enable 2 means auto, 0 means maximum, 1 means manual.
+- Each read of the platform profile or any pwm file stalls every CPU for about 5 ms in firmware; fan RPM, temperatures, and battery files do not.
+- So the daemon reads the profile and fan settings only at start, after its own changes, after sleep, and when the kernel signals a profile change, which it does for every change made through GNOME; fans are re-read then only if the profile differs, and status polls answer from memory.
 - Keyboard 05af:666a: a 103-lamp LampArray collection and a separate FF02 vendor collection.
 - Lid logo 0d62:ba51: FF01 vendor HID collection.
 - Rear lightbar: no USB device; reached through firmware WMI (see below).
@@ -119,12 +121,15 @@ Replay never changes the saved state.
 - Removing a cap writes each CPU's own `cpuinfo_max_freq`; a cap at the type's maximum counts as no cap.
 - Hardware ranges can differ per CPU, so read and restore `cpuinfo_*` per CPU, never from one CPU of a type.
 - Caps are saved only after every write succeeds; a failed write puts the saved caps back.
-- tuned rewrites caps on profile changes, so the daemon checks saved caps every ten seconds, at start, and on reload after sleep, and rewrites only CPUs that differ.
+- tuned rewrites caps on profile changes, so the daemon checks saved caps every ten seconds, at start, and on reload after sleep, and rewrites only CPUs above the saved cap.
+- NVIDIA's `nvidia-powerd` lowers every CPU's `scaling_max_freq` several times a second while the GPU is busy, so the daemon leaves caps below the saved one alone.
 - Observed host: performance CPUs 0–15 at 0.8–5.6 GHz, with favored CPUs 8–11 up to 5.8 GHz, and efficiency CPUs 16–31 at 0.8–4.1 GHz.
 
 ## Telemetry
 
 - NVIDIA monitoring is off until the user turns it on.
+- CPU package power comes from the daemon, because only root can read the powercap `intel-rapl` domain named `package-0` (`energy_uj`, `max_energy_range_uj`).
+- The daemon reports the average watts between readings at least one second apart, rounded to 0.1 W, and handles the counter wrapping; closer readings repeat the last average, and readings more than ten seconds apart, such as across sleep, start over.
 - Per-core GHz is the `scaling_cur_freq` average over each physical core's threads, tagged by core type.
 
 ## Hardware status
@@ -145,6 +150,7 @@ Replay never changes the saved state.
 | NVIDIA telemetry (temperature, use, VRAM) | Working; all 24 physical cores report frequency |
 | `switcherooctl` NVIDIA offload environment | Working |
 | CPU caps through `scaling_max_freq` (4.0 GHz performance, 3.0 GHz efficiency) | Working through `cpupower`; daemon writes not yet run on hardware |
+| CPU package power from `intel-rapl:0` | Domain present and used by thermald; daemon reads not yet run on hardware |
 
 WASD Wave darkness: the saved command had nonzero RGB and brightness, so the cause is unknown.
 The user reports WASD comes back after moving brightness back and forth and accepts that.
