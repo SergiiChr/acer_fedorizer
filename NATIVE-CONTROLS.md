@@ -27,6 +27,8 @@ Observed host: Predator PH16-72, BIOS V1.10, Fedora kernel 7.2.8-200.fc44.x86_64
 
 - Stock Acer platform profiles: low-power, quiet, balanced, balanced-performance, performance.
 - Stock Acer hwmon: fan1/2, pwm1/2, pwm1/2_enable. PWM is 0–255; enable 2 means auto, 0 means maximum, 1 means manual.
+- Each read of the platform profile or any pwm file stalls every CPU for about 5 ms in firmware; fan RPM, temperatures, and battery files do not.
+- So the daemon reads the profile and fan settings only at start, after its own changes, after sleep, and when the kernel signals a profile change, which it does for every change made through GNOME; fans are re-read then only if the profile differs, and status polls answer from memory.
 - Keyboard 05af:666a: a 103-lamp LampArray collection and a separate FF02 vendor collection.
 - Lid logo 0d62:ba51: FF01 vendor HID collection.
 - Rear lightbar: no USB device; reached through firmware WMI (see below).

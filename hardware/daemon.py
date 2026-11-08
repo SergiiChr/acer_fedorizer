@@ -7,11 +7,14 @@ import grp
 import json
 import logging
 import os
+import select
 import signal
 import socket
 import socketserver
 import sys
 import threading
+import time
+from pathlib import Path
 
 from . import hotkey, uevents
 from .controls import VERSION, NativeControls
@@ -74,6 +77,25 @@ def watch_hid(controls: NativeControls) -> None:
         controls.restore_lighting()
 
 
+def watch_profile(controls: NativeControls, profile: Path) -> None:
+    """Re-read profile and fan settings each time the kernel signals a profile change, such as from GNOME."""
+    with profile.open('rb', buffering=0) as attribute:
+        poller = select.poll()
+        poller.register(attribute, select.POLLPRI | select.POLLERR)
+        while True:
+            # Only a read arms the next signal; right after opening, poll returns at once.
+            try:
+                # Holding the lock keeps a value read before the daemon's own write from replacing that write.
+                with controls.lock:
+                    attribute.seek(0)
+                    controls.update_profile(attribute.read().decode().strip())
+            except OSError as error:
+                # A failed read may leave the signal unarmed; pausing keeps a retry loop from stalling the CPUs nonstop.
+                log.warning('Could not read the performance profile: %s', error)
+                time.sleep(1)
+            poller.poll()
+
+
 def restore_in_background(controls: NativeControls) -> None:
     threading.Thread(target=controls.restore_lighting, daemon=True, name='restore-lighting').start()
 
@@ -130,13 +152,18 @@ def main() -> None:
     cpu_wake = threading.Event()
     def reload(*_: object) -> None:
         restore_in_background(controls)
+        threading.Thread(target=controls.refresh_firmware, daemon=True, name='refresh-firmware').start()
         cpu_wake.set()
-    # systemctl reload (also sent after resume from sleep) replays saved lighting and CPU caps.
+    # systemctl reload (also sent after resume from sleep) replays saved lighting and CPU caps
+    # and re-reads profile and fan settings.
     signal.signal(signal.SIGUSR1, reload)
     restore_in_background(controls)
     if controls.cpu.groups:
         threading.Thread(target=keep_cpu_limits, args=(controls, cpu_wake), daemon=True, name='cpu-limits').start()
     threading.Thread(target=watch_hid, args=(controls,), daemon=True, name='hid-hotplug').start()
+    if controls.profile_dir:
+        threading.Thread(target=watch_profile, args=(controls, controls.profile_dir / 'profile'), daemon=True,
+                         name='profile-changes').start()
     hotkey.start(args.socket_owner)
     try:
         log.info('Native controls: %s', ', '.join(sorted(controls.features)))

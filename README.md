@@ -45,6 +45,7 @@ With Secure Boot you may need to enroll your distribution's DKMS signing key bef
 
 The hardware service keeps running after the window closes, waiting for commands and the Predator button.
 It does no dashboard or GPU monitoring, and closing the window does not reset any setting.
+Each read of the performance profile or fan modes briefly freezes every CPU on this laptop, so the service reads them only at start, after its own changes, after sleep, and when the kernel reports a profile change; a fan mode set by another tool shows after the next of these.
 Saved CPU frequency caps are reapplied at start and after sleep, and put back within ten seconds when another tool, such as tuned, raises them.
 A lower cap set by another tool, such as NVIDIA's `nvidia-powerd` moving power to the GPU during games, stays, and the Dashboard marks it as lowered by another tool.
 Lighting shown in the app is the last successful command, not a reading from the device.

@@ -97,13 +97,37 @@ class NativeTests(unittest.TestCase):
         other = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
         self.assertNotIn('thermal_profile', other.features)
 
-    def test_profile_reads_external_changes_and_reads_do_not_write(self) -> None:
+    def test_polls_report_profile_and_fans_from_memory_until_a_change_is_signalled(self) -> None:
+        # On the PH16-72 each real read of these files stalls every CPU for about 5 ms.
+        (self.hwmon / 'pwm1_enable').write_text('0')
         for choice in CHOICES:
             (self.profile / 'profile').write_text(choice)
             with patch.object(self.controls, '_write', side_effect=AssertionError('read caused write')):
-                self.assertEqual({'current': choice, 'available': CHOICES}, self.controls.settings()['thermal_profile'])
+                self.assertNotEqual(choice, self.controls.settings()['thermal_profile']['current'])
+                self.controls.refresh_firmware()
+                settings = self.controls.settings()
+            self.assertEqual({'current': choice, 'available': CHOICES}, settings['thermal_profile'])
+            self.assertEqual({'mode': 'max', 'percent': 100}, settings['fans']['cpu'])
         with self.assertRaises(ValueError):
             self.controls.command('set_thermal_profile', {'profile': 'turbo'})
+
+    def test_a_signalled_profile_change_rereads_fans_but_an_unchanged_profile_does_not(self) -> None:
+        (self.hwmon / 'pwm1_enable').write_text('0')
+        self.controls.update_profile('balanced')
+        self.assertEqual({'mode': 'auto', 'percent': 0}, self.controls.settings()['fans']['cpu'])
+        self.controls.update_profile('performance')
+        settings = self.controls.settings()
+        self.assertEqual('performance', settings['thermal_profile']['current'])
+        self.assertEqual({'mode': 'max', 'percent': 100}, settings['fans']['cpu'])
+
+    def test_profile_change_shows_fans_the_firmware_reset_with_it(self) -> None:
+        (self.hwmon / 'pwm1_enable').write_text('0')
+        self.controls.refresh_firmware()
+        with patch.object(self.controls, '_write', side_effect=lambda path, value: (
+                Path(path).write_text(str(value)), (self.hwmon / 'pwm1_enable').write_text('2'))):
+            reply = self.controls.command('set_thermal_profile', {'profile': 'performance'})
+        assert isinstance(reply, dict)
+        self.assertEqual({'mode': 'auto', 'percent': 0}, reply['fans']['cpu'])
 
     def test_profile_change_replies_with_the_new_settings(self) -> None:
         reply = self.controls.command('set_thermal_profile', {'profile': 'performance'})

@@ -6,7 +6,7 @@ Core controls use stock kernel drivers, not NVIDIA.
 The lightbar module rebuilds through DKMS after kernel updates, which needs matching kernel headers.
 
 **Why does the performance selection change on its own?**
-The app shows the stock driver's current profile every two seconds, including changes from the hardware button or another app.
+The app shows the stock driver's current profile, including changes the kernel reports, such as from GNOME's power mode menu.
 Opening the app never applies a profile.
 
 **Do I still need my own CPU frequency cap script or timer?**
