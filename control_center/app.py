@@ -52,8 +52,6 @@ PROFILE_ICONS={'low-power':'power-profile-power-saver-symbolic','quiet':'audio-v
 CORE_TITLES={CoreKind.PERFORMANCE:'Performance cores',CoreKind.EFFICIENCY:'Efficiency cores'}
 FAN_MODES={FanMode.AUTO:('Auto','view-refresh-symbolic'),FanMode.MAX:('Max','power-profile-performance-symbolic'),
            FanMode.MANUAL:('Manual','preferences-system-symbolic')}
-# Manual fan speeds apply once a slider has rested this long, so dragging does not send a write per step.
-FAN_SETTLE_MS=500
 
 def button(text: str, callback: Callable[[Gtk.Button], object], css: str = '') -> Gtk.Button:
     widget=Gtk.Button(label=text,valign=Gtk.Align.CENTER)
@@ -103,7 +101,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.layout_loading=False
         self.layout_waiters: list[tuple[Callable[[list[Lamp]], object], Callable[[str], object]]]=[]
         self.gpu_enabled=False; self.status_pending=False; self.editor: KeyEditor | None=None
-        self.fan_timer=0; self.limit_kinds: tuple[str, ...]=(); self.display_watched=False
+        self.fan_draft=False; self.manual_speeds: dict[str, int]={'cpu': 45,'gpu': 45}; self.limit_kinds: tuple[str, ...]=(); self.display_watched=False
         self.workers=Workers()
         self.build()
         self.connect('realize',self.realized)
@@ -205,11 +203,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.profile_tiles=ModeTiles(changed=self.apply_profile)
         self.profile_choices: list[str]=[]
         self.profile_group.add(Adw.PreferencesRow(child=self.profile_tiles)); page.append(self.profile_group)
-        self.fan_group=Adw.PreferencesGroup(title='Fan speed',description='Click a mode to apply it. Manual speeds apply when a slider stops moving. Failed writes restore automatic cooling.')
+        self.fan_group=Adw.PreferencesGroup(title='Fan speed',description='Click a mode to apply it. Speeds are a share of top speed: Manual applies them with the button, other modes show the current speed. Failed writes restore automatic cooling.')
         self.fan_mode=ModeTiles(list(FAN_MODES.values()),changed=self.apply_fans)
         self.fan_group.add(Adw.PreferencesRow(child=self.fan_mode))
-        self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan',45)
-        self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan',45)
+        self.cpu_slider,self.cpu_rpm=self.fan_row('CPU fan')
+        self.gpu_slider,self.gpu_rpm=self.fan_row('GPU fan')
+        self.fan_apply_row=Adw.ActionRow(title='Manual speeds',subtitle='The firmware still speeds fans up as the laptop warms.')
+        self.fan_sliders=(('cpu',self.cpu_slider),('gpu',self.gpu_slider))
+        self.fan_apply=button('Apply speeds',lambda _:self.send_fans(self.manual_speeds),'suggested-action')
+        self.fan_apply_row.add_suffix(self.fan_apply); self.fan_group.add(self.fan_apply_row)
         page.append(self.fan_group)
         cards=box(16,True)
         cpu=box(12); cpu.add_css_class('metric-card'); cpu.set_hexpand(True)
@@ -243,12 +245,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.usb_combo=Adw.ComboRow(title='USB Power Delivery',model=Gtk.StringList.new(['Off','10%','20%','30%']))
         self.usb_combo.connect('notify::selected',self.usb_changed); self.extras.add(self.usb_combo)
         page.append(self.extras)
-        self.update_fan_sensitivity()
+        self.show_fan_sliders()
 
-    def fan_row(self, title: str, value: float) -> tuple[Gtk.Scale, Gtk.Label]:
+    def fan_row(self, title: str) -> tuple[Gtk.Scale, Gtk.Label]:
         row=Adw.ActionRow(title=title)
-        slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,1,99,1)
-        slider.set_value(value); slider.set_draw_value(True); slider.set_value_pos(Gtk.PositionType.RIGHT)
+        slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
+        slider.set_draw_value(True); slider.set_value_pos(Gtk.PositionType.RIGHT)
         slider.set_size_request(220,-1); slider.set_valign(Gtk.Align.CENTER)
         slider.connect('value-changed',self.fan_slider_moved)
         rpm=label('— RPM','dim-label'); rpm.set_width_chars(11)
@@ -509,9 +511,9 @@ class MainWindow(Adw.ApplicationWindow):
             ac=state.ac_online
             self.ac_label.set_text('AC power' if ac is True else 'Battery power' if ac is False else 'Power source unknown')
             for key,widget in (('cpu',self.cpu_rpm),('gpu',self.gpu_rpm)):
-                widget.set_text(number_text(state.fan_rpm.get(key),' RPM'))
-            # A slider that has not settled yet is an unsaved change, so it keeps its value.
-            if state.fans and not self.fan_timer: self.show_fans(state.fans)
+                widget.set_text(number_text(None if (rpm:=state.fan_rpm.get(key)) is None else rpm//100/10,'K RPM',1))
+            # Unapplied manual speeds are a draft, so a refresh keeps them and the Manual tile.
+            if state.fans and not self.fan_draft: self.show_fans(state.fans)
             self.show_limits(state)
             self.charge_limit.set_visible('battery_limiter' in features)
             self.charge_limit.set_active(state.switches['battery_limiter'])
@@ -630,36 +632,54 @@ class MainWindow(Adw.ApplicationWindow):
         if index<len(self.profile_choices) and (profile:=self.profile_choices[index])!=(self.state.profile if self.state else None):
             self.mutate('set_thermal_profile',{'profile': profile})
     def show_fans(self, fans: Fans) -> None:
-        """Select the tile for the firmware fan mode; manual speeds also move the sliders."""
+        """Select the tile for the firmware fan mode; without a draft, manual fans also set the speeds to apply."""
         modes={fans.cpu.mode,fans.gpu.mode}
         mode=modes.pop() if len(modes)==1 else FanMode.MANUAL
         self.fan_mode.set_selected(list(FAN_MODES).index(mode))
-        for slider,fan in ((self.cpu_slider,fans.cpu),(self.gpu_slider,fans.gpu)):
-            if fan.mode==FanMode.MANUAL and 0<fan.percent<100: slider.set_value(fan.percent)
-        self.update_fan_sensitivity()
-    def update_fan_sensitivity(self) -> None:
+        if not self.fan_draft:
+            for key,fan in (('cpu',fans.cpu),('gpu',fans.gpu)):
+                if fan.mode==FanMode.MANUAL: self.manual_speeds[key]=fan.percent
+        self.show_fan_sliders()
+    def show_fan_sliders(self) -> None:
+        """Manual mode shows the speeds to apply; other modes show the current speed as a share of top speed."""
         manual=self.selected_fan_mode()==FanMode.MANUAL
-        self.cpu_slider.set_sensitive(manual); self.gpu_slider.set_sensitive(manual)
+        current=self.state.fan_percent if self.state else {}
+        updating,self.updating=self.updating,True
+        try:
+            if manual: self.manual_speeds={key:self.fan_step(speed) for key,speed in self.manual_speeds.items()}
+            for key,slider in self.fan_sliders:
+                # 0 and 100 select automatic and full speed, so manual speeds stay between them.
+                slider.set_range(*((1,99) if manual else (0,100)))
+                slider.set_value(self.manual_speeds[key] if manual else current.get(key,0))
+                slider.set_sensitive(manual)
+        finally: self.updating=updating
+        self.fan_apply_row.set_visible(manual)
+        self.fan_apply.set_sensitive(manual and self.fan_draft)
     def fan_slider_moved(self, *_: object) -> None:
         if self.updating or self.selected_fan_mode()!=FanMode.MANUAL: return
-        if self.fan_timer: GLib.source_remove(self.fan_timer)
-        self.fan_timer=GLib.timeout_add(FAN_SETTLE_MS,self.fan_slider_settled)
-    def fan_slider_settled(self) -> bool:
-        # A change in flight finishes first; the settled speeds follow it.
-        if self.pending: return GLib.SOURCE_CONTINUE
-        self.fan_timer=0
-        self.apply_fans()
-        return GLib.SOURCE_REMOVE
+        self.manual_speeds={key:round(slider.get_value()) for key,slider in self.fan_sliders}
+        self.fan_draft=True
+        self.show_fan_sliders()
+    def fan_step(self, speed: int) -> int:
+        """The nearest manual percent the firmware can hold, so the slider shows what Apply will set."""
+        steps=self.state.fan_steps if self.state else ()
+        return min(steps,key=lambda step:abs(step-speed)) if steps else speed
     def selected_fan_mode(self) -> FanMode:
         return list(FAN_MODES)[self.fan_mode.get_selected()]
     def apply_fans(self) -> None:
-        """Send the selected fan mode unless the firmware already runs it."""
-        self.update_fan_sensitivity()
-        mode=self.selected_fan_mode()
-        values=tuple(Fan(mode,round(slider.get_value())).speed for slider in (self.cpu_slider,self.gpu_slider))
+        """Send the selected fan mode unless the firmware already runs it; Manual sends the speeds on its sliders."""
+        self.show_fan_sliders()
+        self.send_fans({key:Fan(self.selected_fan_mode(),speed).speed for key,speed in self.manual_speeds.items()})
+    def send_fans(self, values: dict[str, int]) -> None:
         fans=self.state.fans if self.state else None
-        current=(fans.cpu.speed,fans.gpu.speed) if fans else None
-        if values!=current: self.mutate('set_fan_speed',{'cpu': values[0],'gpu': values[1]})
+        if fans and values=={'cpu': fans.cpu.speed,'gpu': fans.gpu.speed}: self.fan_applied()
+        # A failed write restores automatic cooling, so it also drops the draft to show that.
+        else: self.mutate('set_fan_speed',{'cpu': values['cpu'],'gpu': values['gpu']},self.fan_applied,self.fan_applied)
+    def fan_applied(self, *_: object) -> None:
+        """Drop the draft so the tiles and sliders show the fan state the firmware reports."""
+        self.fan_draft=False
+        if self.state and self.state.fans: self.show_fans(self.state.fans)
+        else: self.show_fan_sliders()
     def apply_limits(self, *_: object) -> None:
         # The service treats a cap at the hardware maximum as no cap.
         params: dict[str, JSON]={kind:round(self.limit_rows[kind].get_value()*10)*100000 for kind in (self.state.cpu_limits if self.state else {})}
@@ -816,7 +836,6 @@ class MainWindow(Adw.ApplicationWindow):
     def on_close(self, *_: object) -> bool:
         self.closed=True
         GLib.source_remove(self.timer)
-        if self.fan_timer: GLib.source_remove(self.fan_timer)
         # Closing never sends a hardware command. In-flight workers are daemon threads.
         self.workers.submit(self.services.client.close)
         return False

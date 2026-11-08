@@ -42,6 +42,11 @@ def integer(value: JSON) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def integers(value: JSON) -> dict[str, int]:
+    """The integer entries of a JSON object, without the others."""
+    return {key: number for key, item in mapping(value).items() if (number := integer(item)) is not None}
+
+
 def text(value: JSON, default: str) -> str:
     return value if isinstance(value, str) else default
 
@@ -182,6 +187,10 @@ class Settings:
     profiles: tuple[str, ...] = ()
     fans: Fans | None = None
     fan_rpm: Mapping[str, int] = field(default_factory=dict)
+    # Current fan speed as a share of top speed, also in automatic and full-speed modes.
+    fan_percent: Mapping[str, int] = field(default_factory=dict)
+    # The manual percents the firmware can hold; empty when the service did not report them.
+    fan_steps: tuple[int, ...] = ()
     # Every name in SWITCHES; False when the service did not report it as on.
     switches: Mapping[str, bool] = field(default_factory=lambda: dict.fromkeys(SWITCHES, False))
     usb_charging: int = 0
@@ -202,6 +211,7 @@ class Settings:
         profile = mapping(value.get('thermal_profile'))
         ac_online = value.get('ac_online')
         power = value.get('cpu_power')
+        steps = value.get('fan_steps')
         lighting = mapping(value.get('lighting_state'))
         features = tuple(strings(value.get('available_features')))
         modes = {target: [mode for item in items if (mode := integer(item)) is not None]
@@ -217,7 +227,9 @@ class Settings:
             profile=text(profile.get('current'), ''),
             profiles=tuple(strings(profile.get('available'))),
             fans=Fans.parse(value.get('fans')),
-            fan_rpm={key: rpm for key, item in mapping(value.get('fan_rpm')).items() if (rpm := integer(item)) is not None},
+            fan_rpm=integers(value.get('fan_rpm')),
+            fan_percent=integers(value.get('fan_percent')),
+            fan_steps=tuple(step for item in steps if (step := integer(item)) is not None) if isinstance(steps, list) else (),
             switches={key: value.get(key) is True for key in SWITCHES},
             usb_charging=integer(value.get('usb_charging')) or 0,
             lighting_modes=modes,

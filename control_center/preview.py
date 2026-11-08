@@ -29,6 +29,10 @@ def fan(percent: int) -> JSON:
     return {'mode': FanMode.AUTO if percent==0 else FanMode.MAX if percent==100 else FanMode.MANUAL,'percent': percent}
 
 
+# One manual step per firmware duty up to 39, as the service reports for this laptop.
+FAN_STEPS: list[JSON]=[*(round(duty*100/39) for duty in range(1,39)),99]
+
+
 class PreviewClient:
     """Answers service commands from in-memory preview state and records every command it receives."""
     def __init__(self) -> None:
@@ -43,7 +47,8 @@ class PreviewClient:
                                         for target in ('keyboard','wasd','logo','lightbar')}
         self.static: dict[str, JSON]={'version': '0.8.0','driver_version': 'Stock acer_wmi + USB HID','laptop_type': 'Predator PH16-72',
             'available_features': ['thermal_profile','fan_speed','cpu_frequency_limit','four_zone_mode','per_zone_mode','per_key_mode','usb_logo','lightbar','battery_limiter','backlight_timeout'],
-            'fan_rpm': {'cpu': 2170,'gpu': 1890},'ac_online': True,
+            'fan_rpm': {'cpu': 2170,'gpu': 1890},'fan_percent': {'cpu': 38,'gpu': 32},
+            'fan_steps': FAN_STEPS,'ac_online': True,
             'lighting_modes': {'keyboard': list(range(10)),'wasd': [0,1,2,3,7],'logo': [0,1,2,9],'lightbar': [0,1,2,3],'all': [0,1,2]}}
 
     def settings(self) -> JSON:
