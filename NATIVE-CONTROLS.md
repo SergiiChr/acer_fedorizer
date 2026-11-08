@@ -27,6 +27,11 @@ Observed host: Predator PH16-72, BIOS V1.10, Fedora kernel 7.2.8-200.fc44.x86_64
 
 - Stock Acer platform profiles: low-power, quiet, balanced, balanced-performance, performance.
 - Stock Acer hwmon: fan1/2, pwm1/2, pwm1/2_enable. PWM is 0–255; enable 2 means auto, 0 means maximum, 1 means manual.
+- In the performance profile, both fans gain about 150 RPM per percent of manual duty from 12% to 30%, and 56% and 58% duty run at top speed, about 5,750 RPM CPU and 5,860 RPM GPU. The slope puts top speed near 39% duty; nothing between 30% and 56% was logged. The daemon treats duty 39 as 100% in every profile, which was not checked outside performance.
+- The firmware stores whole duty percents, and `acer_wmi` truncates both ways: a write sends pwm × 100 / 255 and a read reports duty × 255 / 100. The daemon writes the smallest pwm that lands on the wanted duty and rounds a read back up, so a manual speed reads back as the step it was set to.
+- The reported current speed in every mode is RPM as a share of those top speeds, because reading pwm stalls the CPUs and does not show the automatic duty.
+- Manual duty is a base, not a fixed speed: the firmware adds RPM steps when its sensors warm, about 1,100 RPM after the CPU sensor touched 55 °C, and runs at top speed by about 70 °C.
+- Neither the Linux driver nor PredatorSense 5.0.1463 sends a fan-curve command; PredatorSense Custom is one fixed percent per fan through the same fan behavior and speed methods.
 - Each read of the platform profile or any pwm file stalls every CPU for about 5 ms in firmware; fan RPM, temperatures, and battery files do not.
 - So the daemon reads the profile and fan settings only at start, after its own changes, after sleep, and when the kernel signals a profile change, which it does for every change made through GNOME; fans are re-read then only if the profile differs, and status polls answer from memory.
 - Keyboard 05af:666a: a 103-lamp LampArray collection and a separate FF02 vendor collection.
@@ -140,6 +145,7 @@ Replay never changes the saved state.
 | --- | --- |
 | Platform profile read/write | Accepted |
 | Automatic fan mode | Accepted |
+| Manual fan duty in performance profile | Seen; RPM measured at 12%, 14%, 16%, 27%, 29%, 30%, 56%, and 58% duty |
 | Keyboard effect | Accepted |
 | Logo color via `0x1e20` path | Seen |
 | Bar color via Breathing → Static | Seen, steady orange-red |

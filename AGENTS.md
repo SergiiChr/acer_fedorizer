@@ -95,3 +95,7 @@ Use sudo or pkexec only when the task truly needs it, after checking that user p
 Before asking, show each exact command on its own line with a plain explanation.
 Status checks, tests, previews, and the GUI run as the desktop user.
 Do not leave privileged operations running after work stops.
+
+## Tools
+
+`gh` is not installed here, so reach GitHub through `api.github.com` with curl.

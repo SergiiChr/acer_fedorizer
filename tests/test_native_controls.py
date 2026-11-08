@@ -243,12 +243,48 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(frame(0x08, 2, 0x42, 6, 90, 0, 0), sent[2])
         self.assertEqual(frame(0x14, 0, 1, 255,35,0,0), sent[3])
 
+    def test_manual_fan_percent_is_share_of_top_speed(self) -> None:
+        # 50% of the 39% top duty is duty 20, sent as pwm 51; 99% is duty 39, sent as pwm 100.
+        self.controls.set_fans(50, 99)
+        self.assertEqual('51', (self.hwmon / 'pwm1').read_text())
+        self.assertEqual('100', (self.hwmon / 'pwm2').read_text())
+        # The kernel reports duty 39 as pwm 99, and a duty above top speed still reads as the highest manual step.
+        (self.hwmon / 'pwm1').write_text('99')
+        (self.hwmon / 'pwm2').write_text('147')
+        self.controls.refresh_fans()
+        self.assertEqual({'cpu': {'mode': 'manual', 'percent': 99}, 'gpu': {'mode': 'manual', 'percent': 99}},
+                         self.controls.settings()['fans'])
+        # A manual duty of 0 still reads as the lowest manual step, because 0 selects automatic.
+        (self.hwmon / 'pwm1').write_text('0')
+        self.controls.refresh_fans()
+        self.assertEqual({'mode': 'manual', 'percent': 1}, self.controls.settings()['fans']['cpu'])
+
+    def test_manual_fan_percent_survives_the_kernel_round_trip(self) -> None:
+        # Duty 29 is written as pwm 74 and read back by the kernel as pwm 73.
+        self.controls.set_fans(74, 74)
+        self.assertEqual('74', (self.hwmon / 'pwm1').read_text())
+        (self.hwmon / 'pwm1').write_text('73')
+        self.controls.refresh_fans()
+        self.assertEqual({'mode': 'manual', 'percent': 74}, self.controls.settings()['fans']['cpu'])
+
+    def test_every_reported_manual_step_reads_back_unchanged(self) -> None:
+        steps = self.controls.settings()['fan_steps']
+        # One step per firmware duty from 1 to 39: duty 1 is 3%, duty 2 is 5%, and duty 39 is capped at 99%.
+        self.assertEqual((39, [3, 5], 99), (len(steps), steps[:2], steps[-1]))
+        for step in steps:
+            self.controls.set_fans(step, step)
+            self.assertEqual({'mode': 'manual', 'percent': step}, self.controls.settings()['fans']['cpu'])
+
+    def test_fan_speed_is_reported_as_share_of_top_rpm(self) -> None:
+        (self.hwmon / 'fan2_input').write_text('6000')
+        self.assertEqual({'cpu': 35, 'gpu': 100}, self.controls.settings()['fan_percent'])
+
     def test_manual_max_and_auto_fans(self) -> None:
         self.controls.set_fans(50, 100)
-        self.assertEqual('128', (self.hwmon / 'pwm1').read_text())
+        self.assertEqual('51', (self.hwmon / 'pwm1').read_text())
         self.assertEqual('1', (self.hwmon / 'pwm1_enable').read_text())
         self.assertEqual('0', (self.hwmon / 'pwm2_enable').read_text())
-        self.assertEqual({'cpu': {'mode': 'manual', 'percent': 50}, 'gpu': {'mode': 'max', 'percent': 100}},
+        self.assertEqual({'cpu': {'mode': 'manual', 'percent': 51}, 'gpu': {'mode': 'max', 'percent': 100}},
                          self.controls.settings()['fans'])
         self.controls.set_fans(0, 0)
         self.assertEqual('2', (self.hwmon / 'pwm1_enable').read_text())

@@ -20,6 +20,10 @@ from .power import PackagePower
 
 VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
+# PH16-72 top fan speeds, measured, and the firmware duty that reaches them, estimated from the RPM slope.
+# Manual and reported percents are shares of these.
+FAN_TOP_DUTY = 39
+FAN_TOP_RPM = {'cpu': 5750, 'gpu': 5860}
 log = logging.getLogger('fedorizer')
 JsonObject = dict[str, object]
 Switch = Literal['backlight_timeout', 'battery_calibration', 'battery_limiter', 'boot_animation_sound', 'lcd_override']
@@ -53,9 +57,12 @@ class Settings(TypedDict, total=False):
     ac_online: Required[bool | None]
     thermal_profile: Required[ThermalProfile]
     fan_rpm: Required[dict[str, int | None]]
+    # Current fan speed as a share of measured top speed, from RPM, so it also covers automatic and full speed.
+    fan_percent: Required[dict[str, int | None]]
     lighting_modes: Required[dict[str, list[int]]]
     lighting_state: Required[JsonObject]
     fans: dict[str, FanState]
+    fan_steps: list[int]
     backlight_timeout: bool
     battery_calibration: bool
     battery_limiter: bool
@@ -78,13 +85,35 @@ def decimal(value: str) -> int | None:
     return int(value) if value.isascii() and value.isdecimal() else None
 
 
+def percent_pwm(percent: int) -> int:
+    """The pwm value for a manual share of top speed.
+    The firmware keeps whole duty percents, and acer_wmi truncates pwm * 100 / 255.
+    So this is the smallest pwm that lands on the duty.
+    """
+    duty = max(1, round(percent * FAN_TOP_DUTY / 100))
+    return -(-duty * 255 // 100)
+
+
+def pwm_percent(pwm: int) -> int:
+    """The manual share of top speed behind a pwm value, kept between 0 and 100, which select automatic and full speed.
+    acer_wmi reports a duty as duty * 255 / 100 truncated, and percent_pwm writes it rounded up.
+    Both land within 0.4 of the duty, so rounding recovers it.
+    """
+    duty = round(pwm * 100 / 255)
+    return max(1, min(99, round(duty * 100 / FAN_TOP_DUTY)))
+
+
+# The manual percents the firmware can hold, one per duty step, so the GUI can offer only these.
+FAN_STEPS = sorted({pwm_percent(percent_pwm(percent)) for percent in range(1, 100)})
+
+
 def fan_state(enable: str, pwm: str) -> FanState:
     """Describe a fan from its hwmon pwmN_enable and pwmN values: firmware auto, full speed, or a manual percent."""
     match enable:
         case '0':
             return {'mode': 'max', 'percent': 100}
         case '1':
-            return {'mode': 'manual', 'percent': round((decimal(pwm) or 0) * 100 / 255)}
+            return {'mode': 'manual', 'percent': pwm_percent(decimal(pwm) or 0)}
         case _:
             return {'mode': 'auto', 'percent': 0}
 
@@ -385,9 +414,12 @@ class NativeControls:
                 'laptop_type': read(self.root / 'class/dmi/id/product_name', 'Acer'),
                 'available_features': sorted(self.features), 'ac_online': self.ac_online(),
                 'thermal_profile': {'current': self.profile, 'available': choices}, 'fan_rpm': rpm,
+                'fan_percent': {name: None if value is None else min(100, round(value * 100 / FAN_TOP_RPM[name]))
+                                for name, value in rpm.items()},
                 'lighting_modes': self.lighting_modes(), 'lighting_state': self.lighting_json}
             if self.fans is not None:
                 out['fans'] = self.fans
+                out['fan_steps'] = FAN_STEPS
             for key in SWITCHES:
                 if key in self.extra_files:
                     out[key] = read(self.extra_files[key]) == '1'
@@ -422,7 +454,7 @@ class NativeControls:
                 self._write(self.hwmon / f'pwm{i}_enable', 2)
 
     def set_fans(self, cpu: int, gpu: int) -> None:
-        """Set both fans to validated 0-100 percentages, where 0 is automatic and 100 is full speed."""
+        """Set both fans to validated 0-100 percentages of top speed, where 0 is automatic and 100 is full speed."""
         if 'fan_speed' not in self.features or not self.hwmon:
             raise ValueError('Stock Acer fan control unavailable')
         # If a write fails, restore automatic cooling rather than leave a half-applied mode.
@@ -431,7 +463,7 @@ class NativeControls:
                 if speed in (0, 100):
                     self._write(self.hwmon / f'pwm{i}_enable', 2 if speed == 0 else 0)
                 else:
-                    self._write(self.hwmon / f'pwm{i}', round(speed * 255 / 100))
+                    self._write(self.hwmon / f'pwm{i}', percent_pwm(speed))
                     self._write(self.hwmon / f'pwm{i}_enable', 1)
         except Exception:
             self.auto_fans()

@@ -81,21 +81,35 @@ def checks() -> bool:
             client.profile='quiet'; refresh_state()
             assert window.profile_tiles.get_selected()==window.profile_choices.index('quiet'),'Hardware button change not shown'
             client.profile='balanced'; refresh_state()
-            # One click applies a fan mode; manual speeds apply once a slider settles, and refreshes keep the unsettled value.
+            # Automatic fans show their current speed; one click applies a fan mode.
+            assert (window.cpu_slider.get_value(),window.gpu_slider.get_value())==(38,32),'Automatic fans did not show current speed'
+            assert window.cpu_rpm.get_text()=='2.1K RPM' and not window.fan_apply_row.get_visible()
             window.fan_mode.buttons[1].emit('clicked')
-            mutate.assert_called_once_with('set_fan_speed',{'cpu':100,'gpu':100}); mutate.reset_mock()
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':100,'gpu':100},window.fan_applied,window.fan_applied); mutate.reset_mock()
             window.fan_mode.buttons[2].emit('clicked')
-            mutate.assert_called_once_with('set_fan_speed',{'cpu':45,'gpu':45}); mutate.reset_mock()
-            assert window.cpu_slider.get_sensitive() and window.gpu_slider.get_sensitive()
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':44,'gpu':44},window.fan_applied,window.fan_applied); mutate.reset_mock()
+            assert window.cpu_slider.get_sensitive() and window.gpu_slider.get_sensitive() and window.fan_apply_row.get_visible()
+            # Manual speeds snap to the steps the firmware can hold, so 45 shows the 44 that Apply sets.
+            assert (window.cpu_slider.get_value(),window.gpu_slider.get_value())==(44,44),'Manual mode did not show the speeds to apply'
+            # Manual speeds apply only with the button, and refreshes keep the unapplied value.
+            assert not window.fan_apply.get_sensitive()
             window.cpu_slider.set_value(60)
             refresh_state()
-            assert window.cpu_slider.get_value()==60 and window.fan_mode.get_selected()==2,'Refresh reset an unsettled fan speed'
+            assert window.cpu_slider.get_value()==59 and window.fan_mode.get_selected()==2,'Refresh reset an unapplied fan speed'
             mutate.assert_not_called()
-            while window.fan_timer: GLib.MainContext.default().iteration(True)
-            mutate.assert_called_once_with('set_fan_speed',{'cpu':60,'gpu':45}); mutate.reset_mock()
+            assert window.fan_apply.get_sensitive()
+            window.fan_apply.emit('clicked')
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':59,'gpu':44},window.fan_applied,window.fan_applied)
+            # A failed write drops the draft, so the tiles show the automatic cooling the service restored.
+            mutate.call_args.args[3]('Write failed'); mutate.reset_mock()
+            assert window.fan_mode.get_selected()==0 and not window.fan_apply_row.get_visible(),'Failed fan write kept the draft'
             window.fan_mode.buttons[0].emit('clicked')
             mutate.assert_not_called()
             assert not window.cpu_slider.get_sensitive() and not window.gpu_slider.get_sensitive()
+            assert window.cpu_slider.get_value()==38,'Automatic fans did not show current speed again'
+            window.fan_mode.buttons[2].emit('clicked')
+            mutate.assert_called_once_with('set_fan_speed',{'cpu':59,'gpu':44},window.fan_applied,window.fan_applied); mutate.reset_mock()
+            window.fan_mode.buttons[0].emit('clicked')
             # The CPU section, with frequency limits that apply only with the button, is on the dashboard.
             assert 'cpu' not in window.nav_rows
             dashboard=window.pages['overview']
