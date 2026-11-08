@@ -16,6 +16,7 @@ from typing import Literal, Required, TypedDict, get_args
 
 from .cpufreq import CoreLimit, CpuLimits
 from .hid import RGB, CoverLogo, Lamp, LampArrayDevice, VendorKeyboard, scale_rgb
+from .power import PackagePower
 
 VERSION = '0.7.0'
 WASD_USAGES = (4, 7, 22, 26)
@@ -62,6 +63,7 @@ class Settings(TypedDict, total=False):
     lcd_override: bool
     usb_charging: int
     cpu_limits: dict[str, CoreLimit]
+    cpu_power: float
 
 
 def read(path: Path, default: str = '') -> str:
@@ -301,6 +303,7 @@ class NativeControls:
         self.cpu = CpuLimits(self.root, self.state_file.with_name('cpu-limits.json'))
         if self.cpu.groups:
             self.static_features.add('cpu_frequency_limit')
+        self.power = PackagePower(self.root)
         self.discover_hid = discover_hid
         self.keyboard: LampArrayDevice | None = None
         self.vendor: VendorKeyboard | None = None
@@ -372,6 +375,8 @@ class NativeControls:
                 out['battery_limiter'] = threshold is not None and threshold <= 80
             if self.cpu.groups:
                 out['cpu_limits'] = self.cpu.state()
+            if (watts := self.power.read()) is not None:
+                out['cpu_power'] = watts
             return out
 
     def set_profile(self, profile: str) -> None:
@@ -569,7 +574,7 @@ class NativeControls:
                 self._apply(target, entry)
 
     def enforce_cpu_limits(self) -> None:
-        """Put saved CPU frequency caps back on CPUs where another tool, such as tuned, changed them."""
+        """Put saved CPU frequency caps back on CPUs where another tool, such as tuned, raised them."""
         with self.lock:
             self.cpu.enforce()
 
@@ -596,8 +601,7 @@ class NativeControls:
                 if not isinstance(profile, str):
                     raise ValueError('Unsupported performance profile')
                 self.set_profile(profile)
-                return self.settings()
-            if name == 'set_fan_speed':
+            elif name == 'set_fan_speed':
                 self.set_fans(integer(p.get('cpu'), 0, 100), integer(p.get('gpu'), 0, 100))
             elif name == 'set_cpu_limits':
                 self.cpu.set(self.cpu.parse(p))

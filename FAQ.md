@@ -11,7 +11,7 @@ Opening the app never applies a profile.
 
 **Do I still need my own CPU frequency cap script or timer?**
 No.
-Set the caps on the CPU page; the hardware service keeps them in place, so turn off your own script or timer to stop the two from competing.
+Set the caps on the Dashboard; the hardware service keeps them in place, so turn off your own script or timer to stop the two from competing.
 Until you apply caps, the service leaves CPU frequency settings alone.
 They stay in effect until you remove them or reboot after uninstalling.
 

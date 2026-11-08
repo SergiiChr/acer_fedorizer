@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Frequency caps per core type through stock cpufreq sysfs, saved and reasserted when other tools change them."""
+"""Frequency caps per core type through stock cpufreq sysfs, saved and reasserted when other tools raise them."""
 import contextlib
 import json
 import logging
@@ -57,7 +57,7 @@ def online(path: Path) -> bool:
 
 @dataclass(frozen=True)
 class CoreGroup:
-    """Logical CPUs of one core type: each scaling_max_freq file with that CPU's own maximum, and the group's range in kHz.
+    """Logical CPUs of one core type: each scaling_max_freq file with that CPU's maximum, and the group's kHz range.
     Favored cores can reach a higher maximum than the rest of their type.
     """
     cpus: tuple[tuple[Path, int], ...]
@@ -72,16 +72,17 @@ class CoreGroup:
                 values.append(khz(path))
         return (min(values), max(values)) if values else None
 
-    def write(self, cap: int | None, only_changed: bool = False) -> None:
+    def write(self, cap: int | None, only_raised: bool = False) -> None:
         """Cap every online CPU at its own maximum or lower, where None means its maximum.
+        With only_raised, CPUs at or below the cap are left alone, so lower caps from tools such as nvidia-powerd stay.
         cpufreq rejects writes to offline CPUs, such as threads with SMT off.
         """
         for path, maximum in self.cpus:
             value = maximum if cap is None else min(cap, maximum)
-            if only_changed:
-                # Offline CPUs refuse reads too, so the online check runs only for a cap that may differ.
-                with contextlib.suppress(OSError):
-                    if khz(path) == value:
+            if only_raised:
+                # Offline CPUs refuse reads too, so the online check runs only for a cap that may be raised.
+                with contextlib.suppress(OSError, ValueError):
+                    if khz(path) <= value:
                         continue
             if online(path):
                 path.write_text(str(value))
@@ -104,15 +105,15 @@ class CpuLimits:
             if ranges:
                 # A CPU offline at startup has no readable range; the group maximum stands in, which cpufreq clamps.
                 maximum = max(high for _, high in ranges.values())
-                self.groups[kind] = CoreGroup(tuple((folder / 'scaling_max_freq', ranges.get(folder, (0, maximum))[1])
-                                                    for folder in folders), min(low for low, _ in ranges.values()), maximum)
+                files = tuple((folder / 'scaling_max_freq', ranges.get(folder, (0, maximum))[1]) for folder in folders)
+                self.groups[kind] = CoreGroup(files, min(low for low, _ in ranges.values()), maximum)
         self.saved: dict[CoreType, int | None] = dict.fromkeys(self.groups)
         with contextlib.suppress(OSError, ValueError):
             if isinstance(saved := json.loads(state_file.read_text()), dict):
                 self.saved = self.parse(saved)
 
     def parse(self, params: Mapping[str, object]) -> dict[CoreType, int | None]:
-        """Validate a cap for every core type: None or the hardware maximum for no cap, else kHz in 100 MHz steps within the range."""
+        """Validate a cap for every core type: None or the maximum for no cap, else kHz in 100 MHz steps in range."""
         if not self.groups:
             raise ValueError('CPU frequency limits unavailable')
         limits: dict[CoreType, int | None] = {}
@@ -122,7 +123,8 @@ class CpuLimits:
             value = params[kind]
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value % STEP or
                                       not group.minimum <= value <= group.maximum):
-                raise ValueError(f'Expected a {kind} core limit of {group.minimum}–{group.maximum} kHz in 100 MHz steps')
+                raise ValueError(
+                    f'Expected a {kind} core limit of {group.minimum}–{group.maximum} kHz in 100 MHz steps')
             limits[kind] = None if value == group.maximum else value
         return limits
 
@@ -131,7 +133,7 @@ class CpuLimits:
                        'current': group.current()} for kind, group in self.groups.items()}
 
     def set(self, limits: dict[CoreType, int | None]) -> None:
-        """Apply and save caps, restoring each CPU's own maximum where there is none; on failure reapply the saved caps."""
+        """Apply and save caps, restoring each CPU's own maximum where there is none; on failure reapply saved caps."""
         try:
             for kind, group in self.groups.items():
                 group.write(limits[kind])
@@ -147,10 +149,10 @@ class CpuLimits:
         self.saved = limits
 
     def enforce(self) -> None:
-        """Rewrite saved caps on CPUs where another tool changed them; types without a cap are left alone."""
+        """Rewrite saved caps on CPUs where another tool raised them above; types without a cap are left alone."""
         for kind, group in self.groups.items():
             if (value := self.saved[kind]) is not None:
                 try:
-                    group.write(value, only_changed=True)
+                    group.write(value, only_raised=True)
                 except (OSError, ValueError) as error:
                     log.warning('Could not reassert %s core limit: %s', kind, error)

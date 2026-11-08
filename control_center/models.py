@@ -192,6 +192,8 @@ class Settings:
     per_key: PerKey = field(default_factory=PerKey)
     # Frequency caps by core type, 'performance' and 'efficiency', when the CPU reports core types.
     cpu_limits: Mapping[CoreKind, CoreLimit] = field(default_factory=dict)
+    # CPU package power in watts, averaged by the service; None until it has two energy readings.
+    cpu_power: float | None = None
 
     @classmethod
     def parse(cls, value: JSON) -> 'Settings':
@@ -199,6 +201,7 @@ class Settings:
             raise ValueError('Invalid settings reply')
         profile = mapping(value.get('thermal_profile'))
         ac_online = value.get('ac_online')
+        power = value.get('cpu_power')
         lighting = mapping(value.get('lighting_state'))
         features = tuple(strings(value.get('available_features')))
         modes = {target: [mode for item in items if (mode := integer(item)) is not None]
@@ -222,7 +225,8 @@ class Settings:
                       for target, target_modes in modes.items()},
             per_key=PerKey.parse(lighting.get('per_key')),
             cpu_limits={CoreKind(kind): limit for kind, item in mapping(value.get('cpu_limits')).items()
-                        if kind in CoreKind and (limit := CoreLimit.parse(item))})
+                        if kind in CoreKind and (limit := CoreLimit.parse(item))},
+            cpu_power=float(power) if isinstance(power, int | float) and not isinstance(power, bool) and power >= 0 else None)
 
 
 @dataclass(frozen=True)

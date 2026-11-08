@@ -4,6 +4,7 @@
 import sys
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -95,10 +96,18 @@ def checks() -> bool:
             window.fan_mode.buttons[0].emit('clicked')
             mutate.assert_not_called()
             assert not window.cpu_slider.get_sensitive() and not window.gpu_slider.get_sensitive()
-            # Frequency limits apply only with the button.
-            window.nav.select_row(window.nav_rows['cpu'])
+            # The CPU section, with frequency limits that apply only with the button, is on the dashboard.
+            assert 'cpu' not in window.nav_rows
+            dashboard=window.pages['overview']
+            assert window.core_bars.is_ancestor(dashboard) and window.limit_group.is_ancestor(dashboard),'CPU section not on the dashboard'
             performance,efficiency=window.limit_rows[CoreKind.PERFORMANCE],window.limit_rows[CoreKind.EFFICIENCY]
             assert performance.get_value()==4.0 and efficiency.get_value()==3.0,'Saved caps not shown'
+            # A cap another tool, such as nvidia-powerd, lowered below the saved one is named as such.
+            assert window.state and 'lowered' not in str(performance.get_subtitle())
+            lowered=replace(window.state.cpu_limits[CoreKind.PERFORMANCE],current=(2873000,2873000))
+            window.show_limits(replace(window.state,cpu_limits={**window.state.cpu_limits,CoreKind.PERFORMANCE:lowered}))
+            assert str(performance.get_subtitle()).endswith('in effect 2.9 GHz, lowered by another tool'),performance.get_subtitle()
+            assert 'lowered' not in str(efficiency.get_subtitle())
             performance.set_value(4.5); efficiency.set_value(4.1)
             refresh_state()
             assert performance.get_value()==4.5,'Refresh reset the limit fields'
@@ -108,6 +117,10 @@ def checks() -> bool:
             window.remove_limits()
             assert mutate.call_args.args[:2]==('set_cpu_limits',{'performance':None,'efficiency':None})
         for _ in range(2): window.receive_cores(services.cores())
+        # The GPU monitoring switch sits in the GPU card, and the CPU card shows package power from the service.
+        assert window.gpu_switch.is_ancestor(window.gpu_card),'GPU switch is outside the GPU card'
+        window.receive_sample(services.sample(False))
+        assert window.cpu_detail.get_text()=='Usage 18% · 45.3 W',window.cpu_detail.get_text()
         bars=window.core_bars
         assert len(bars.cores)==24 and bars.averages!=[core.ghz for core in bars.cores],'Chart shows no averages'
         credits_window=window.show_credits()

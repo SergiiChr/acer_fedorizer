@@ -62,6 +62,34 @@ class NativeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_cpu_power_averages_package_energy_across_a_counter_wrap_at_most_once_a_second(self) -> None:
+        domain = self.root / 'class/powercap/intel-rapl:0'
+        domain.mkdir(parents=True)
+        for name, value in (('name', 'package-0'), ('energy_uj', '262143000000'), ('max_energy_range_uj', '262143328850')):
+            (domain / name).write_text(value + '\n')
+        controls = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
+        with patch('hardware.power.time.clock_gettime', side_effect=[100.0, 102.0, 102.5]):
+            self.assertNotIn('cpu_power', controls.settings())
+            # 328851 µJ up to the wrap and 89671150 µJ after it is 90 J over 2 s.
+            (domain / 'energy_uj').write_text('89671150\n')
+            self.assertEqual(45.0, controls.settings()['cpu_power'])
+            (domain / 'energy_uj').write_text('99671150\n')
+            self.assertEqual(45.0, controls.settings()['cpu_power'])
+
+    def test_cpu_power_starts_over_after_sleep_instead_of_averaging_across_it(self) -> None:
+        domain = self.root / 'class/powercap/intel-rapl:0'
+        domain.mkdir(parents=True)
+        for name, value in (('name', 'package-0'), ('energy_uj', '1000000'), ('max_energy_range_uj', '262143328850')):
+            (domain / name).write_text(value + '\n')
+        controls = NativeControls(str(self.root), str(self.root / 'state.json'), discover_hid=False)
+        with patch('hardware.power.time.clock_gettime', side_effect=[100.0, 3700.0, 3702.0]):
+            controls.settings()
+            # An hour asleep at 2 W, then 30 W for 2 s.
+            (domain / 'energy_uj').write_text('8201000000\n')
+            self.assertNotIn('cpu_power', controls.settings())
+            (domain / 'energy_uj').write_text('8261000000\n')
+            self.assertEqual(30.0, controls.settings()['cpu_power'])
+
     def test_discovery_accepts_stock_acer_and_rejects_unrelated_provider(self) -> None:
         self.assertIn('thermal_profile', self.controls.features)
         self.assertIn('fan_speed', self.controls.features)
@@ -568,6 +596,15 @@ class CpuLimitTests(unittest.TestCase):
         self.limits[2].write_text('2000000\n')
         self.controls.enforce_cpu_limits()
         self.assertEqual(['4000000', '4000000', '2000000\n', '4100000'], [p.read_text() for p in self.limits])
+
+    def test_reassert_leaves_caps_another_tool_lowered(self) -> None:
+        # nvidia-powerd lowers every CPU's scaling_max_freq to values off the 100 MHz grid while the GPU is busy.
+        self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
+        self.limits[0].write_text('2873000\n')
+        self.limits[2].write_text('2873000\n')
+        self.limits[3].write_text('3320000\n')
+        self.controls.enforce_cpu_limits()
+        self.assertEqual(['2873000\n', '4000000', '2873000\n', '3000000'], [p.read_text() for p in self.limits])
 
     def test_reassert_writes_nothing_when_caps_hold(self) -> None:
         self.controls.command('set_cpu_limits', {'performance': 4000000, 'efficiency': 3000000})
