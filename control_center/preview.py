@@ -3,6 +3,7 @@
 import copy
 import json
 import math
+import random
 import threading
 from collections.abc import Callable
 from dataclasses import replace
@@ -79,10 +80,20 @@ class PreviewClient:
     def close(self) -> None: pass
 
 
+def history() -> tuple[tuple[Sample, float | None], ...]:
+    """Dashboard samples with CPU package power that look like noisy real readings yet stay the same on every run.
+    GPU monitoring starts off, so they have no GPU values.
+    """
+    noise=random.Random(7)
+    return tuple((Sample(cpu_usage=max(2,22+6*math.sin(i*.18)+noise.gauss(0,6)),cpu_temperature=56+6*math.sin(i*.15)+noise.gauss(0,3),
+                         memory_used=9.6+.3*math.sin(i*.1)+noise.gauss(0,.05),memory_total=31.1,gpu=None,battery=None),
+                  max(8,36+8*math.sin(i*.18)+noise.gauss(0,7))) for i in range(59))
+
+
 class PreviewServices:
     """Preview data for every window data source; the display toggle only changes this in-memory state."""
     preview = True
-    cpu_history = tuple(25+8*math.sin(i*.18)+3*math.sin(i*.7) for i in range(60))
+    history = history()
 
     def __init__(self) -> None:
         self.client = PreviewClient()

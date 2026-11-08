@@ -17,8 +17,8 @@ class Services(Protocol):
     """Everything the window reads or changes; every method except watch_display may block and runs on a worker."""
     # True for labelled preview data that never reaches the hardware service or Mutter.
     preview: bool
-    # CPU usage history shown before the first sample arrives.
-    cpu_history: tuple[float, ...]
+    # Samples with CPU package power in watts, shown in the dashboard charts before the first sample arrives.
+    history: tuple[tuple[Sample, float | None], ...]
 
     @property
     def client(self) -> Client: ...
@@ -35,7 +35,7 @@ class Services(Protocol):
 class LiveServices:
     """The local hardware service socket, Linux sysfs/proc telemetry, and the GNOME session's Mutter."""
     preview = False
-    cpu_history: tuple[float, ...] = ()
+    history: tuple[tuple[Sample, float | None], ...] = ()
 
     def __init__(self) -> None:
         self.client = ControlClient()

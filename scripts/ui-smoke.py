@@ -131,10 +131,18 @@ def checks() -> bool:
             window.remove_limits()
             assert mutate.call_args.args[:2]==('set_cpu_limits',{'performance':None,'efficiency':None})
         for _ in range(2): window.receive_cores(services.cores())
-        # The GPU monitoring switch sits in the GPU card, and the CPU card shows package power from the service.
-        assert window.gpu_switch.is_ancestor(window.gpu_card),'GPU switch is outside the GPU card'
+        # The GPU monitoring switch sits in the dashboard heading, and the power chart shows package power from the service.
+        assert window.gpu_switch.is_ancestor(window.page_headings['overview']),'GPU switch is outside the dashboard heading'
         window.receive_sample(services.sample(False))
-        assert window.cpu_detail.get_text()=='Usage 18% · 45.3 W',window.cpu_detail.get_text()
+        legends=[legend.get_text() for legend in window.chart_legends]
+        assert legends[3]=='● CPU 45.3 W    ● GPU paused',legends
+        window.gpu_switch.set_active(True)
+        window.receive_sample(services.sample(True))
+        legends=[legend.get_text() for legend in window.chart_legends]
+        assert legends==['● CPU 54°C    ● GPU 42°C','● CPU 18%    ● GPU 3%','● RAM 9.8 / 31.1 GiB    ● VRAM 0.5 / 12.0 GiB',
+                         '● CPU 45.3 W    ● GPU 5.2 W    ● Total 50.5 W'],legends
+        assert window.memory_chart.top==32,'Memory axis does not end at the RAM size'
+        window.gpu_switch.set_active(False)
         bars=window.core_bars
         assert len(bars.cores)==24 and bars.averages!=[core.ghz for core in bars.cores],'Chart shows no averages'
         credits_window=window.show_credits()
