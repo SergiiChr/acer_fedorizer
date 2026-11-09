@@ -39,9 +39,9 @@ from .models import (
 from .services import Services
 from .telemetry import Battery, Core, PowerReading, Sample
 from .widgets import (
-    AVERAGE_COLOR,
     CPU_COLOR,
     GPU_COLOR,
+    TOTAL_COLOR,
     CoreBars,
     KeyboardCanvas,
     LineChart,
@@ -114,7 +114,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.lighting_loading=False; self.layout: list[Lamp] | None=None
         self.layout_loading=False
         self.layout_waiters: list[tuple[Callable[[list[Lamp]], object], Callable[[str], object]]]=[]
-        self.gpu_enabled=False; self.status_pending=False; self.editor: KeyEditor | None=None
+        self.status_pending=False; self.editor: KeyEditor | None=None
         self.fan_draft=False; self.manual_speeds: dict[str, int]={'cpu': 45,'gpu': 45}; self.limit_kinds: tuple[str, ...]=(); self.display_watched=False
         self.workers=Workers()
         self.build()
@@ -180,12 +180,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack=Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,transition_duration=140,vexpand=True)
         column.append(self.stack); content.set_content(column)
         split.set_content(Adw.NavigationPage.new(content,'Controls'))
-        self.pages: dict[str, Gtk.Box]={}; self.page_headings: dict[str, Gtk.Box]={}
+        self.pages: dict[str, Gtk.Box]={}
         for key,title,_,description in PAGES:
             page=box(24)
             page.set_margin_top(30); page.set_margin_bottom(30); page.set_margin_start(32); page.set_margin_end(32)
             heading=box(7); heading.set_hexpand(True); heading.append(label(title,'page-heading')); heading.append(label(description,'page-description'))
-            heading_row=box(16,True); heading_row.append(heading); page.append(heading_row); self.page_headings[key]=heading_row
+            heading_row=box(16,True); heading_row.append(heading); page.append(heading_row)
+            if key=='overview': self.overview_heading=heading_row
             scroll=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,vexpand=True)
             clamp=Adw.Clamp(maximum_size=1040,tightening_threshold=850,child=page)
             scroll.set_child(clamp)
@@ -233,18 +234,18 @@ class MainWindow(Adw.ApplicationWindow):
         switch_label=label('GPU monitoring'); switch_label.set_wrap(False); switch_box.append(switch_label)
         self.gpu_switch=Gtk.Switch(valign=Gtk.Align.CENTER)
         self.gpu_switch.update_property([Gtk.AccessibleProperty.LABEL],['GPU monitoring'])
-        self.gpu_switch.connect('notify::active',self.gpu_toggled)
-        switch_box.append(self.gpu_switch); self.page_headings['overview'].append(switch_box)
+        self.gpu_switch.connect('notify::active',lambda *_:self.refresh())
+        switch_box.append(self.gpu_switch); self.overview_heading.append(switch_box)
         self.temperature_chart=LineChart((CPU_COLOR,GPU_COLOR),'°C',top=100)
         self.usage_chart=LineChart((CPU_COLOR,GPU_COLOR),'%',top=100)
         self.memory_chart=LineChart((CPU_COLOR,GPU_COLOR),' GiB',1)
-        self.power_chart=LineChart((CPU_COLOR,GPU_COLOR,AVERAGE_COLOR),' W',1)
+        self.power_chart=LineChart((CPU_COLOR,GPU_COLOR,TOTAL_COLOR),' W',1)
         grid=Gtk.Grid(column_spacing=16,row_spacing=16,column_homogeneous=True)
-        self.chart_legends: list[Gtk.Label]=[]
+        self.chart_legends: dict[LineChart, Gtk.Label]={}
         for index,(title,chart) in enumerate((('TEMPERATURE',self.temperature_chart),('USAGE',self.usage_chart),
                                               ('MEMORY',self.memory_chart),('POWER',self.power_chart))):
             card=box(12); card.add_css_class('metric-card')
-            legend=label('Waiting for a sample'); self.chart_legends.append(legend)
+            legend=label('Waiting for a sample'); self.chart_legends[chart]=legend
             card.append(label(title,'eyebrow')); card.append(legend); card.append(chart)
             grid.attach(card,index%2,index//2,1,1)
         page.append(grid)
@@ -459,7 +460,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.polling or self.pending or not self.on_screen(): return True
         self.polling=True
         page=self.stack.get_visible_child_name()
-        gpu=self.gpu_enabled and page=='overview'
+        gpu=self.gpu_switch.get_active() and page=='overview'
         def work() -> tuple[Settings | None, Sample | None, list[Core] | None, Battery | None]:
             try: state=Settings.parse(self.services.client.command('get_all_settings'))
             except (OSError,ValueError,RuntimeError): state=None
@@ -560,27 +561,31 @@ class MainWindow(Adw.ApplicationWindow):
 
     def chart_sample(self, sample: Sample, cpu_power: float | None) -> None:
         """Add a sample to the dashboard charts and show its values above them."""
-        gpu=sample.gpu if self.gpu_enabled else None
-        missing='unavailable' if self.gpu_enabled else 'paused'
-        vram=gpu.memory_used/1024 if gpu and gpu.memory_used is not None else None
-        vram_total=gpu.memory_total/1024 if gpu and gpu.memory_total else None
+        gpu=sample.gpu if self.gpu_switch.get_active() else None
+        def shown(value: float | None, unit: str, digits: int = 0) -> str: return number_text(value,unit,digits,'unavailable')
+        def share(used: float | None, size: float | None) -> str:
+            return f'{used:.1f} / {size:.1f} GiB' if used is not None and size else 'unavailable'
+        def gpu_text(text: str) -> str: return text if gpu else 'unavailable' if self.gpu_switch.get_active() else 'paused'
+        temperature,usage=(gpu.temperature,gpu.usage) if gpu else (None,None)
+        vram,vram_total=(gpu.memory_used,gpu.memory_total) if gpu else (None,None)
+        above_limit=gpu is not None and gpu.power is PowerReading.ABOVE_LIMIT
         gpu_power=gpu.power if gpu and not isinstance(gpu.power,PowerReading) else None
         total=cpu_power+gpu_power if cpu_power is not None and gpu_power is not None else None
         totals=[v for v in (sample.memory_total,vram_total) if v]
         # Memory sizes are multiples of 8 GiB, so the axis tops out at the larger memory's size.
         self.memory_chart.top=math.ceil(max(totals)/8)*8 if totals else None
-        rows=((self.temperature_chart,(sample.cpu_temperature,gpu.temperature if gpu else None),
-               ((CPU_COLOR,'CPU '+number_text(sample.cpu_temperature,'°C')),(GPU_COLOR,'GPU '+(number_text(gpu.temperature,'°C') if gpu else missing)))),
-              (self.usage_chart,(sample.cpu_usage,gpu.usage if gpu else None),
-               ((CPU_COLOR,'CPU '+number_text(sample.cpu_usage,'%',missing='sampling…')),(GPU_COLOR,'GPU '+(number_text(gpu.usage,'%') if gpu else missing)))),
+        rows=((self.temperature_chart,(sample.cpu_temperature,temperature),
+               ((CPU_COLOR,'CPU '+shown(sample.cpu_temperature,'°C')),(GPU_COLOR,'GPU '+gpu_text(shown(temperature,'°C'))))),
+              (self.usage_chart,(sample.cpu_usage,usage),
+               ((CPU_COLOR,'CPU '+number_text(sample.cpu_usage,'%',missing='sampling…')),(GPU_COLOR,'GPU '+gpu_text(shown(usage,'%'))))),
               (self.memory_chart,(sample.memory_used,vram),
-               ((CPU_COLOR,'RAM '+(f'{sample.memory_used:.1f} / {sample.memory_total:.1f} GiB' if sample.memory_used is not None and sample.memory_total else 'unavailable')),
-                (GPU_COLOR,'VRAM '+(f'{vram:.1f} / {vram_total:.1f} GiB' if vram is not None and vram_total else 'unavailable' if gpu else missing)))),
+               ((CPU_COLOR,'RAM '+share(sample.memory_used,sample.memory_total)),(GPU_COLOR,'VRAM '+gpu_text(share(vram,vram_total))))),
               (self.power_chart,(cpu_power,gpu_power,total),
-               ((CPU_COLOR,'CPU '+number_text(cpu_power,' W',1)),(GPU_COLOR,'GPU '+(missing if not gpu else 'Above safety limit.' if gpu.power is PowerReading.ABOVE_LIMIT else number_text(gpu_power,' W',1))),
-                *(((AVERAGE_COLOR,'Total '+number_text(total,' W',1)),) if total is not None else ()))))
-        for (chart,values,parts),legend in zip(rows,self.chart_legends,strict=True):
-            chart.sample(values); legend.set_markup(legend_markup(parts))
+               ((CPU_COLOR,'CPU '+shown(cpu_power,' W',1)),
+                (GPU_COLOR,'GPU '+gpu_text('Above safety limit.' if above_limit else shown(gpu_power,' W',1))),
+                *(((TOTAL_COLOR,'Total '+shown(total,' W',1)),) if total is not None else ()))))
+        for chart,values,parts in rows:
+            chart.sample(values); self.chart_legends[chart].set_markup(legend_markup(parts))
 
     def receive_cores(self, cores: list[Core]) -> None:
         limits=self.state.cpu_limits if self.state else {}
@@ -622,10 +627,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.battery_labels['cycles'].set_text(number_text(battery.cycles if battery else None,'',0))
         self.battery_labels['model'].set_text(battery.model if battery and battery.model else 'Unavailable')
         self.battery_labels['manufacturer'].set_text(battery.manufacturer if battery and battery.manufacturer else 'Unavailable')
-
-    def gpu_toggled(self, *_: object) -> None:
-        self.gpu_enabled=self.gpu_switch.get_active()
-        self.refresh()
 
     def mutate(self, command: str, params: dict[str, JSON], applied: Callable[[], None] | None = None,
                failed: Callable[[str], None] | None = None) -> None:

@@ -7,8 +7,6 @@ window { font-family: "Adwaita Sans", "Cantarell", sans-serif; }
 .page-heading { font-size: 30px; font-weight: 800; letter-spacing: -1px; }
 .page-description { font-size: 14px; color: @dim_label_color; }
 .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; color: @dim_label_color; }
-.metric { font-size: 40px; font-weight: 750; letter-spacing: -1.5px; }
-.metric-small { font-size: 24px; font-weight: 700; }
 .metric-card { padding: 22px; border-radius: 18px; background: @card_bg_color; }
 .status-pill { padding: 5px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; background: alpha(@accent_color, .14); color: @accent_color; }
 .hero { border-radius: 20px; padding: 24px; background: linear-gradient(115deg, alpha(@accent_color,.20), alpha(@accent_color,.04)); border: 1px solid alpha(@accent_color,.17); }

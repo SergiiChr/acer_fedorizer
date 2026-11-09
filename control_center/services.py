@@ -7,6 +7,9 @@ from . import display, installation
 from .client import JSON, ControlClient
 from .telemetry import Battery, Core, Sample, Telemetry
 
+# Dashboard samples, each with CPU package power in watts from the hardware service.
+History = tuple[tuple[Sample, float | None], ...]
+
 
 class Client(Protocol):
     def command(self, command: str, params: dict[str, JSON] | None = None) -> JSON: ...
@@ -18,7 +21,7 @@ class Services(Protocol):
     # True for labelled preview data that never reaches the hardware service or Mutter.
     preview: bool
     # Samples with CPU package power in watts, shown in the dashboard charts before the first sample arrives.
-    history: tuple[tuple[Sample, float | None], ...]
+    history: History
 
     @property
     def client(self) -> Client: ...
@@ -35,7 +38,7 @@ class Services(Protocol):
 class LiveServices:
     """The local hardware service socket, Linux sysfs/proc telemetry, and the GNOME session's Mutter."""
     preview = False
-    history: tuple[tuple[Sample, float | None], ...] = ()
+    history: History = ()
 
     def __init__(self) -> None:
         self.client = ControlClient()

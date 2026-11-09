@@ -145,10 +145,10 @@ class ModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=AssertionError('GPU was queried')):
             self.assertIsNone(Telemetry(tmp,tmp).sample(False).gpu)
     def test_gpu_sample_is_one_nvidia_query_for_power_draw_not_its_average(self) -> None:
-        # Driver 620.70 reports a placeholder 1.00 W average about one sample in four under load; power.draw stays right.
-        with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',return_value=Mock(returncode=0,stdout='86,100,1100,12282,101.8,175\n')) as process:
+        # Under load, driver 620.70 showed power.draw.average at 1.00 W while power.draw stayed right.
+        with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',return_value=Mock(returncode=0,stdout='86,100,1024,12288,101.8,175\n')) as process:
             gpu=Telemetry(tmp,tmp).gpu()
-        self.assertEqual((gpu.temperature,gpu.power) if gpu else None,(86,101.8))
+        self.assertEqual((gpu.temperature,gpu.memory_used,gpu.memory_total,gpu.power) if gpu else None,(86,1.0,12.0,101.8))
         self.assertEqual(process.call_count,1)
         fields=process.call_args.args[0][1].removeprefix('--query-gpu=').split(',')
         self.assertIn('power.draw',fields); self.assertNotIn('power.draw.average',fields)

@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .models import CoreKind
 
-# Every driver reports power.draw, its average when valid and otherwise the instant reading.
-# Driver 620.70 reports a placeholder 1.00 W in power.draw.average about one sample in four under load, so it is not read.
+# Every driver reports power.draw.
+# Under load, driver 620.70 showed power.draw.average at 1.00 W in about a quarter of samples; power.draw stayed right.
 GPU_QUERY = 'temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.max_limit'
 # A longer gap between CPU samples would average over time the dashboard was not shown.
 MAX_SAMPLE_GAP = 5.0
@@ -34,7 +34,9 @@ class PowerReading(Enum):
 
 @dataclass(frozen=True)
 class Gpu:
-    """One NVIDIA sample; power is in watts, None when not reported, or ABOVE_LIMIT when the driver reports an impossible value."""
+    """One NVIDIA sample with memory in GiB.
+    Power is in watts, None when not reported, or ABOVE_LIMIT when the driver reports an impossible value.
+    """
     temperature: float | None
     usage: float | None
     memory_used: float | None
@@ -100,6 +102,8 @@ def gpu_fields(output: str) -> Gpu:
     if len(values) != 6:
         raise ValueError('Incomplete GPU sample')
     temp, usage, used, total, power, maximum = map(number, values)
+    # nvidia-smi reports memory in MiB.
+    used, total = (v/1024 if v is not None else None for v in (used, total))
     # Drivers have reported impossible readings such as 588 W on a 175 W GPU.
     bound = maximum * 1.15 if maximum and maximum > 0 else 500
     return Gpu(temp, usage, used, total, PowerReading.ABOVE_LIMIT if power is not None and power > bound else power)

@@ -13,6 +13,7 @@ from .client import JSON
 from .display import PanelStatus
 from .installation import CHECKS, Check, Report
 from .models import CoreKind, FanMode
+from .services import History
 from .telemetry import Battery, Core, Gpu, Sample
 
 
@@ -80,7 +81,7 @@ class PreviewClient:
     def close(self) -> None: pass
 
 
-def history() -> tuple[tuple[Sample, float | None], ...]:
+def dashboard_history() -> History:
     """Dashboard samples with CPU package power that look like noisy real readings yet stay the same on every run.
     GPU monitoring starts off, so they have no GPU values.
     """
@@ -93,7 +94,7 @@ def history() -> tuple[tuple[Sample, float | None], ...]:
 class PreviewServices:
     """Preview data for every window data source; the display toggle only changes this in-memory state."""
     preview = True
-    history = history()
+    history = dashboard_history()
 
     def __init__(self) -> None:
         self.client = PreviewClient()
@@ -120,7 +121,7 @@ class PreviewServices:
 
     def sample(self, gpu: bool) -> Sample:
         return Sample(cpu_usage=18.4,cpu_temperature=54,memory_used=9.8,memory_total=31.1,
-                      gpu=Gpu(temperature=42,usage=3,memory_used=486,memory_total=12282,power=5.2) if gpu else None,
+                      gpu=Gpu(temperature=42,usage=3,memory_used=.47,memory_total=12,power=5.2) if gpu else None,
                       battery=self.battery())
 
     def cores(self) -> list[Core]:
