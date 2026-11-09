@@ -8,7 +8,7 @@ import cairo
 import gi
 
 gi.require_version('Gtk','4.0')
-from gi.repository import Gdk, Gtk, Pango, PangoCairo
+from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo
 
 from .keyboard import keycaps
 from .models import CoreKind, Lamp
@@ -33,8 +33,26 @@ def color_rgba(hex_value: str) -> Gdk.RGBA:
     return rgba
 
 
+def hex_color(color: Iterable[float]) -> str:
+    """Six hex digits for red, green, and blue channels given from 0 to 1."""
+    return ''.join(f'{round(max(0,min(1,v))*255):02x}' for v in color)
+
+
 def hex_rgba(rgba: Gdk.RGBA) -> str:
-    return ''.join(f'{round(max(0,min(1,v))*255):02x}' for v in (rgba.red,rgba.green,rgba.blue))
+    return hex_color((rgba.red,rgba.green,rgba.blue))
+
+
+def rounded(cr: 'cairo.Context[cairo.Surface]', x: float, y: float, w: float, h: float, r: float) -> None:
+    """Add a rounded rectangle path with corner radius r."""
+    cr.new_sub_path()
+    for cx,cy,a,b in ((x+w-r,y+r,-90,0),(x+w-r,y+h-r,0,90),(x+r,y+h-r,90,180),(x+r,y+r,180,270)):
+        cr.arc(cx,cy,r,math.radians(a),math.radians(b))
+    cr.close_path()
+
+
+def legend_markup(parts: Iterable[tuple[tuple[float, float, float], str]]) -> str:
+    """Pango markup listing each text after a dot in its series color."""
+    return '    '.join(f'<span foreground="#{hex_color(color)}">●</span> {GLib.markup_escape_text(text)}' for color,text in parts)
 
 
 class ModeTiles(Gtk.FlowBox):
@@ -88,43 +106,111 @@ class ModeTiles(Gtk.FlowBox):
 
 ACCENT=(.36,.75,.74)
 GRID_COLOR=(.55,.6,.65,.12)
+CPU_COLOR=(.36,.60,.96)
+GPU_COLOR=(.38,.78,.45)
+AVERAGE_COLOR=(.90,.71,.40)
+TOTAL_COLOR=AVERAGE_COLOR
+TEXT_COLOR=(.6,.65,.7,.9)
+# Samples kept in each chart; at the two-second poll this is the last two minutes.
+HISTORY=60
+# Vertical pixels each gridline step needs so axis labels never crowd.
+GRID_SPACING=24
+MAX_GRID_STEPS=5
+SCALE_STEPS=(1,2,5)
+# Vertical pixels between hover label baselines.
+LABEL_GAP=15
 
 
-class HistoryChart(Gtk.DrawingArea):
-    def __init__(self, color: tuple[float, float, float] = ACCENT, height: int = 90) -> None:
+def axis(top: float | None, peak: float, steps: int) -> tuple[float, float]:
+    """Axis top and gridline step that split zero to top into at most `steps` equal whole-number parts.
+    A fixed top uses as many parts as fit; without one, the top is the smallest 1, 2, or 5 × 10ⁿ multiple above peak.
+    """
+    if top is not None:
+        return top,next((top/n for n in range(steps,1,-1) if (top/n).is_integer()),top)
+    for step in (m*10**k for k in itertools.count() for m in SCALE_STEPS):
+        if (count:=max(1,math.ceil(peak/step)))<=steps: return count*step,step
+    raise AssertionError('unreachable')
+
+
+def label_baselines(points: Sequence[float], top: float, bottom: float) -> list[float]:
+    """Text baselines beside points sorted top to bottom, at least LABEL_GAP apart and between top and bottom."""
+    lines: list[float]=[]
+    for point in points: lines.append(max(point+4,lines[-1]+LABEL_GAP if lines else top))
+    # Labels pushed past the bottom move back up, keeping their spacing.
+    for i in reversed(range(len(lines))): lines[i]=min(lines[i],lines[i+1]-LABEL_GAP if i+1<len(lines) else bottom)
+    return lines
+
+
+class LineChart(Gtk.DrawingArea):
+    """Recent samples of several series on one shared axis; hovering shows each series' value next to its point."""
+    def __init__(self, colors: Sequence[tuple[float, float, float]], unit: str, digits: int = 0,
+                 top: float | None = None, height: int = 150) -> None:
         super().__init__(content_height=height,hexpand=True)
-        self.values: list[float | None]=[]
-        self.color=color
+        self.colors=colors; self.unit=unit; self.digits=digits; self.top=top
+        self.values: list[tuple[float | None, ...]]=[]
+        self.pointer: float | None=None
+        motion=Gtk.EventControllerMotion()
+        motion.connect('motion',self.moved); motion.connect('leave',self.left)
+        self.add_controller(motion)
         self.set_draw_func(self.draw)
-    def sample(self, value: float | None) -> None:
-        self.values=[*self.values,value][-60:]
+    def sample(self, values: Sequence[float | None]) -> None:
+        """Add one value per series; None leaves a gap in that series' line."""
+        self.values=[*self.values,tuple(values)][-HISTORY:]
         self.queue_draw()
+    def moved(self, _: Gtk.EventControllerMotion, x: float, __: float) -> None:
+        self.pointer=x; self.queue_draw()
+    def left(self, _: Gtk.EventControllerMotion) -> None:
+        self.pointer=None; self.queue_draw()
     def draw(self, _: Gtk.DrawingArea, cr: 'cairo.Context[cairo.Surface]', width: int, height: int) -> None:
-        cr.set_source_rgba(*GRID_COLOR)
-        cr.set_line_width(1)
-        for y in (height*.25,height*.5,height*.75):
-            cr.move_to(0,y); cr.line_to(width,y)
+        cr.set_font_size(11)
+        above,below=10,6
+        plot=height-above-below
+        peak=max((v for row in self.values for v in row if v is not None),default=0)
+        top,step=axis(self.top,peak,max(1,min(MAX_GRID_STEPS,plot//GRID_SPACING)))
+        marks=[step*i for i in range(round(top/step)+1)]
+        texts=[f'{mark:g}'+(self.unit if mark==marks[-1] else '') for mark in marks]
+        widths=[cr.text_extents(text).x_advance for text in texts]
+        left=max(widths)+10
+        def y(value: float) -> float: return above+plot*(1-max(0,min(value,top))/top)
+        cr.set_source_rgba(*GRID_COLOR); cr.set_line_width(1)
+        for mark in marks: cr.move_to(left,y(mark)); cr.line_to(width,y(mark))
         cr.stroke()
-        if not any(v is not None for v in self.values): return
-        values=self.values
-        if len(values)==1: values=values*2
-        points=[(i*width/max(1,len(values)-1), height-8-(max(0,min(100,v))/100)*(height-16)) if v is not None else None for i,v in enumerate(values)]
-        for present,group in itertools.groupby(points,key=lambda point:point is not None):
-            segment=[point for point in group if point is not None]
-            if not present or len(segment)<2: continue
-            cr.move_to(segment[0][0],height)
-            for x,y in segment: cr.line_to(x,y)
-            cr.line_to(segment[-1][0],height); cr.close_path()
-            cr.set_source_rgba(*self.color,.12); cr.fill()
-            cr.move_to(*segment[0])
-            for point in segment[1:]: cr.line_to(*point)
-            cr.set_source_rgba(*self.color,.95); cr.set_line_width(2); cr.stroke()
+        cr.set_source_rgba(*TEXT_COLOR)
+        for mark,text,text_width in zip(marks,texts,widths,strict=True): cr.move_to(left-6-text_width,y(mark)+4); cr.show_text(text)
+        rows=self.values*2 if len(self.values)==1 else self.values
+        if not rows: return
+        def x(index: int) -> float: return left+index*(width-left)/max(1,len(rows)-1)
+        for series,color in enumerate(self.colors):
+            points=[(x(i),y(v)) if (v:=row[series]) is not None else None for i,row in enumerate(rows)]
+            for present,group in itertools.groupby(points,key=lambda point:point is not None):
+                segment=[point for point in group if point is not None]
+                if not present or len(segment)<2: continue
+                cr.move_to(segment[0][0],y(0))
+                for point in segment: cr.line_to(*point)
+                cr.line_to(segment[-1][0],y(0)); cr.close_path()
+                cr.set_source_rgba(*color,.05); cr.fill()
+                cr.move_to(*segment[0])
+                for point in segment[1:]: cr.line_to(*point)
+                cr.set_source_rgba(*color,.95); cr.set_line_width(1); cr.stroke()
+        if self.pointer is None or self.pointer<left or width<=left: return
+        # A drag that started on the chart keeps reporting the pointer after it leaves the right edge.
+        index=min(len(rows)-1,round((self.pointer-left)/(width-left)*(len(rows)-1)))
+        hovered=sorted(((y(v),v,color) for v,color in zip(rows[index],self.colors,strict=True) if v is not None),key=lambda item:item[0])
+        if not hovered: return
+        px=x(index)
+        cr.set_source_rgba(*TEXT_COLOR[:3],.35); cr.set_line_width(1)
+        cr.move_to(px,above); cr.line_to(px,y(0)); cr.stroke()
+        for (point_y,value,color),label_y in zip(hovered,label_baselines([item[0] for item in hovered],above+8,height-2),strict=True):
+            cr.set_source_rgba(*color,1); cr.arc(px,point_y,2.5,0,2*math.pi); cr.fill()
+            text=f'{value:.{self.digits}f}{self.unit}'
+            extents=cr.text_extents(text)
+            tx=px+9 if px+9+extents.x_advance+4<=width else px-9-extents.x_advance
+            cr.set_source_rgba(.08,.09,.1,.8); rounded(cr,tx-4,label_y-11,extents.x_advance+8,LABEL_GAP,4); cr.fill()
+            cr.set_source_rgba(*color,1); cr.move_to(tx,label_y); cr.show_text(text)
 
 
 # Cores of a CPU without core types use the performance color.
 CORE_COLORS: dict[CoreKind | None, tuple[float, float, float]]={CoreKind.PERFORMANCE:ACCENT,CoreKind.EFFICIENCY:(.64,.57,.88)}
-AVERAGE_COLOR=(.90,.71,.40)
-TEXT_COLOR=(.6,.65,.7,.9)
 AVERAGE_SECONDS=10
 
 
@@ -226,7 +312,7 @@ class KeyboardCanvas(Gtk.DrawingArea):
         spany=max(y+h for _,x,y,w,h in caps)-miny
         scale=min((width-36)/spanx,(height-30)/spany)
         ox=(width-spanx*scale)/2; oy=(height-spany*scale)/2
-        self.rounded(cr,ox-10,oy-10,spanx*scale+20,spany*scale+20,12)
+        rounded(cr,ox-10,oy-10,spanx*scale+20,spany*scale+20,12)
         cr.set_source_rgba(.035,.045,.055,.7); cr.fill()
         layout=PangoCairo.create_layout(cr)
         for lamp,kx,ky,kw,kh in caps:
@@ -236,11 +322,11 @@ class KeyboardCanvas(Gtk.DrawingArea):
             self.rects.append((x,y,w,h,lid))
             color=self.colors.get(str(lid),'4f9c9c')
             r,g,b=(channel/255 for channel in bytes.fromhex(color))
-            self.rounded(cr,x,y+2,w,h,4)
+            rounded(cr,x,y+2,w,h,4)
             cr.set_source_rgba(0,0,0,.65); cr.fill()
-            self.rounded(cr,x,y,w,h,4)
+            rounded(cr,x,y,w,h,4)
             cr.set_source_rgb(.12,.14,.16); cr.fill()
-            self.rounded(cr,x,y,w,h,4)
+            rounded(cr,x,y,w,h,4)
             cr.set_source_rgba(r,g,b,.35 if selected else .13); cr.fill_preserve()
             cr.set_source_rgba(r,g,b,1 if selected else .48); cr.set_line_width(2 if selected else 1); cr.stroke()
             text=USAGES.get(lamp.key_usage,'LED '+str(lid))
@@ -249,12 +335,6 @@ class KeyboardCanvas(Gtk.DrawingArea):
             tw,th=layout.get_pixel_size()
             cr.set_source_rgba(.88,.93,.94,.95)
             cr.move_to(x+(w-tw)/2,y+(h-th)/2); PangoCairo.show_layout(cr,layout)
-    @staticmethod
-    def rounded(cr: 'cairo.Context[cairo.Surface]', x: float, y: float, w: float, h: float, r: float) -> None:
-        cr.new_sub_path()
-        for cx,cy,a,b in ((x+w-r,y+r,-90,0),(x+w-r,y+h-r,0,90),(x+r,y+h-r,90,180),(x+r,y+r,180,270)):
-            cr.arc(cx,cy,r,math.radians(a),math.radians(b))
-        cr.close_path()
     def clicked(self, _: Gtk.GestureClick, count: int, x: float, y: float) -> None:
         for left,top,width,height,lid in self.rects:
             if left<=x<=left+width and top<=y<=top+height:

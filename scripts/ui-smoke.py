@@ -18,7 +18,8 @@ from control_center.app import Application, KeyEditor
 from control_center.client import JSON
 from control_center.models import ZONE_MODE, CoreKind, Lamp, Settings, mapping
 from control_center.preview import PreviewServices
-from control_center.widgets import color_rgba
+from control_center.telemetry import PowerReading
+from control_center.widgets import axis, color_rgba, label_baselines
 
 services=PreviewServices()
 client=services.client
@@ -131,10 +132,30 @@ def checks() -> bool:
             window.remove_limits()
             assert mutate.call_args.args[:2]==('set_cpu_limits',{'performance':None,'efficiency':None})
         for _ in range(2): window.receive_cores(services.cores())
-        # The GPU monitoring switch sits in the GPU card, and the CPU card shows package power from the service.
-        assert window.gpu_switch.is_ancestor(window.gpu_card),'GPU switch is outside the GPU card'
+        # The GPU monitoring switch sits in the dashboard heading.
+        # The power chart shows CPU package power from the service.
+        assert window.gpu_switch.is_ancestor(window.overview_heading),'GPU switch is outside the dashboard heading'
         window.receive_sample(services.sample(False))
-        assert window.cpu_detail.get_text()=='Usage 18% · 45.3 W',window.cpu_detail.get_text()
+        legends=[legend.get_text() for legend in window.chart_legends.values()]
+        assert legends[3]=='● CPU 45.3 W    ● GPU paused',legends
+        window.gpu_switch.set_active(True)
+        window.receive_sample(services.sample(True))
+        legends=[legend.get_text() for legend in window.chart_legends.values()]
+        assert legends==['● CPU 54°C    ● GPU 42°C','● CPU 18%    ● GPU 3%','● RAM 9.8 / 31.1 GiB    ● VRAM 0.5 / 12.0 GiB',
+                         '● CPU 45.3 W    ● GPU 5.2 W    ● Total 50.5 W'],legends
+        assert window.memory_chart.top==32,'Memory axis does not end at the RAM size'
+        # Hover labels for two points near the bottom edge stack upward, 15 px apart, instead of covering each other.
+        assert label_baselines([140,142],10,148)==[133,148],label_baselines([140,142],10,148)
+        assert label_baselines([50,90],10,148)==[54,94],'Labels apart from each other moved'
+        # Axes split evenly from zero: fixed tops use as many whole steps as fit, others round up to 1, 2, or 5 × 10ⁿ.
+        assert (axis(100,0,5),axis(32,0,5),axis(None,147.8,5))==((100,20),(32,8),(150,50))
+        sample=services.sample(True)
+        assert sample.gpu
+        window.receive_sample(replace(sample,gpu=replace(sample.gpu,power=PowerReading.ABOVE_LIMIT)))
+        power=window.chart_legends[window.power_chart].get_text()
+        assert power=='● CPU 45.3 W    ● GPU Above safety limit.',power
+        assert window.power_chart.values[-1]==(45.3,None,None),'An impossible GPU reading reached the chart'
+        window.gpu_switch.set_active(False)
         bars=window.core_bars
         assert len(bars.cores)==24 and bars.averages!=[core.ghz for core in bars.cores],'Chart shows no averages'
         credits_window=window.show_credits()

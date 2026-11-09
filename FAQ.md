@@ -23,9 +23,12 @@ Other effects send the separate color command used by Acer's original software.
 No.
 The detected interfaces have no physical display MUX switch.
 
-**Why is VRAM monitoring paused?**
+**Why does the dashboard say GPU paused?**
 GPU monitoring is opt-in because NVIDIA queries may wake the discrete GPU.
-Turn it on in the dashboard to collect GPU metrics and VRAM history.
+Turn on GPU monitoring at the right of the dashboard heading to chart GPU temperature, usage, VRAM, and power.
+
+**Why does GPU power say Above safety limit?**
+The driver reported more than 1.15 times the GPU's power limit, which cannot be right, so the reading stays off the chart.
 
 **Where are the battery, USB, and other extra controls?**
 They appear only when the stock kernel exposes them.
