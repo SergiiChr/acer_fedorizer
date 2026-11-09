@@ -37,7 +37,7 @@ from .models import (
     uses_palette,
 )
 from .services import Services
-from .telemetry import Battery, Core, Sample
+from .telemetry import Battery, Core, PowerReading, Sample
 from .widgets import (
     AVERAGE_COLOR,
     CPU_COLOR,
@@ -564,7 +564,7 @@ class MainWindow(Adw.ApplicationWindow):
         missing='unavailable' if self.gpu_enabled else 'paused'
         vram=gpu.memory_used/1024 if gpu and gpu.memory_used is not None else None
         vram_total=gpu.memory_total/1024 if gpu and gpu.memory_total else None
-        gpu_power=gpu.power if gpu else None
+        gpu_power=gpu.power if gpu and not isinstance(gpu.power,PowerReading) else None
         total=cpu_power+gpu_power if cpu_power is not None and gpu_power is not None else None
         totals=[v for v in (sample.memory_total,vram_total) if v]
         # Memory sizes are multiples of 8 GiB, so the axis tops out at the larger memory's size.
@@ -577,7 +577,7 @@ class MainWindow(Adw.ApplicationWindow):
                ((CPU_COLOR,'RAM '+(f'{sample.memory_used:.1f} / {sample.memory_total:.1f} GiB' if sample.memory_used is not None and sample.memory_total else 'unavailable')),
                 (GPU_COLOR,'VRAM '+(f'{vram:.1f} / {vram_total:.1f} GiB' if vram is not None and vram_total else 'unavailable' if gpu else missing)))),
               (self.power_chart,(cpu_power,gpu_power,total),
-               ((CPU_COLOR,'CPU '+number_text(cpu_power,' W',1)),(GPU_COLOR,'GPU '+(number_text(gpu_power,' W',1) if gpu else missing)),
+               ((CPU_COLOR,'CPU '+number_text(cpu_power,' W',1)),(GPU_COLOR,'GPU '+(missing if not gpu else 'Above safety limit.' if gpu.power is PowerReading.ABOVE_LIMIT else number_text(gpu_power,' W',1))),
                 *(((AVERAGE_COLOR,'Total '+number_text(total,' W',1)),) if total is not None else ()))))
         for (chart,values,parts),legend in zip(rows,self.chart_legends,strict=True):
             chart.sample(values); legend.set_markup(legend_markup(parts))

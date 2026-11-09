@@ -4,16 +4,14 @@ import math
 import subprocess
 import time
 from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 
 from .models import CoreKind
 
-# Newer drivers report average and instant power; older ones only power.draw.
-GPU_QUERIES = (
-    ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw.average,power.draw.instant,'
-     'power.max_limit,clocks.gr,clocks.mem'),
-    ('temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.draw,'
-     'power.max_limit,clocks.gr,clocks.mem'))
+# Every driver reports power.draw, its average when valid and otherwise the instant reading.
+# Driver 620.70 reports a placeholder 1.00 W in power.draw.average about one sample in four under load, so it is not read.
+GPU_QUERY = 'temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.max_limit'
 # A longer gap between CPU samples would average over time the dashboard was not shown.
 MAX_SAMPLE_GAP = 5.0
 
@@ -29,13 +27,19 @@ class Core:
     ghz: float
 
 
+class PowerReading(Enum):
+    """A power value that was reported but cannot be right."""
+    ABOVE_LIMIT = auto()
+
+
 @dataclass(frozen=True)
 class Gpu:
+    """One NVIDIA sample; power is in watts, None when not reported, or ABOVE_LIMIT when the driver reports an impossible value."""
     temperature: float | None
     usage: float | None
     memory_used: float | None
     memory_total: float | None
-    power: float | None
+    power: float | PowerReading | None
 
 
 @dataclass(frozen=True)
@@ -93,12 +97,12 @@ def cpu_list(value: str) -> list[int]:
 
 def gpu_fields(output: str) -> Gpu:
     values = output.strip().splitlines()[0].split(',') if output.strip() else []
-    if len(values) != 9:
+    if len(values) != 6:
         raise ValueError('Incomplete GPU sample')
-    temp, usage, used, total, average, instant, maximum, _, _ = map(number, values)
+    temp, usage, used, total, power, maximum = map(number, values)
+    # Drivers have reported impossible readings such as 588 W on a 175 W GPU.
     bound = maximum * 1.15 if maximum and maximum > 0 else 500
-    power = next((v for v in (average, instant) if v is not None and v <= bound), None)
-    return Gpu(temp, usage, used, total, power)
+    return Gpu(temp, usage, used, total, PowerReading.ABOVE_LIMIT if power is not None and power > bound else power)
 
 
 class Telemetry:
@@ -106,7 +110,6 @@ class Telemetry:
         self.sys = Path(sys_root)
         self.proc = Path(proc_root)
         self.previous: CpuTicks | None = None
-        self.gpu_queries: tuple[str, ...] = GPU_QUERIES
 
     def sample(self, gpu: bool=False) -> Sample:
         return Sample(self.cpu_usage(), self.cpu_temperature(), *self.memory(), self.gpu() if gpu else None, self.battery())
@@ -158,15 +161,11 @@ class Telemetry:
 
     def gpu(self) -> Gpu | None:
         try:
-            for query in self.gpu_queries:
-                process=subprocess.run(['nvidia-smi','--query-gpu='+query,'--format=csv,noheader,nounits'],
-                                       capture_output=True,text=True,timeout=3,check=False)
-                if process.returncode == 0:
-                    self.gpu_queries=(query,)  # The driver accepted it; skip failing variants from now on.
-                    return gpu_fields(process.stdout)
+            process=subprocess.run(['nvidia-smi','--query-gpu='+GPU_QUERY,'--format=csv,noheader,nounits'],
+                                   capture_output=True,text=True,timeout=3,check=False)
+            return gpu_fields(process.stdout) if process.returncode == 0 else None
         except (OSError,ValueError,subprocess.TimeoutExpired):
-            pass
-        return None
+            return None
 
     def battery(self) -> Battery | None:
         for battery in self.sys.glob('class/power_supply/*'):

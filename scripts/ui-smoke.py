@@ -18,6 +18,7 @@ from control_center.app import Application, KeyEditor
 from control_center.client import JSON
 from control_center.models import ZONE_MODE, CoreKind, Lamp, Settings, mapping
 from control_center.preview import PreviewServices
+from control_center.telemetry import PowerReading
 from control_center.widgets import color_rgba
 
 services=PreviewServices()
@@ -142,6 +143,11 @@ def checks() -> bool:
         assert legends==['● CPU 54°C    ● GPU 42°C','● CPU 18%    ● GPU 3%','● RAM 9.8 / 31.1 GiB    ● VRAM 0.5 / 12.0 GiB',
                          '● CPU 45.3 W    ● GPU 5.2 W    ● Total 50.5 W'],legends
         assert window.memory_chart.top==32,'Memory axis does not end at the RAM size'
+        sample=services.sample(True)
+        assert sample.gpu
+        window.receive_sample(replace(sample,gpu=replace(sample.gpu,power=PowerReading.ABOVE_LIMIT)))
+        assert window.chart_legends[3].get_text()=='● CPU 45.3 W    ● GPU Above safety limit.',window.chart_legends[3].get_text()
+        assert window.power_chart.values[-1]==(45.3,None,None),'An impossible GPU reading reached the chart'
         window.gpu_switch.set_active(False)
         bars=window.core_bars
         assert len(bars.cores)==24 and bars.averages!=[core.ghz for core in bars.cores],'Chart shows no averages'

@@ -23,7 +23,7 @@ from control_center.models import (
     full_key_map,
     mapping,
 )
-from control_center.telemetry import Core, Telemetry, gpu_fields
+from control_center.telemetry import Core, PowerReading, Telemetry, gpu_fields
 
 type Handler = Callable[[socket.socket,io.BufferedReader],object]
 
@@ -135,25 +135,23 @@ class ModelTests(unittest.TestCase):
         self.assertEqual((empty.fans,empty.laptop_type,empty.per_key.brightness,empty.usb_charging),(None,'Unknown',80,0))
         self.assertIsNone(Settings.parse({'fans':{'cpu':{'mode':'turbo','percent':1}}}).fans)
         with self.assertRaises(ValueError): Settings.parse([])
-    def test_gpu_prefers_average_and_rejects_observed_invalid_power(self) -> None:
-        self.assertEqual(gpu_fields('40,2,100,12000,5,588,175,200,405').power,5)
-        self.assertIsNone(gpu_fields('40,2,100,12000,N/A,588,175,200,405').power)
-        self.assertEqual(gpu_fields('40,2,100,12000,N/A,0,175,200,405').power,0)
-        self.assertIsNone(gpu_fields('40,2,100,12000,nan,inf,175,200,405').power)
+    def test_gpu_power_reads_driver_power_draw_and_rejects_values_above_the_limit(self) -> None:
+        self.assertEqual(gpu_fields('40,2,100,12000,102.5,175').power,102.5)
+        self.assertIs(gpu_fields('40,2,100,12000,588,175').power,PowerReading.ABOVE_LIMIT)
+        self.assertIsNone(gpu_fields('40,2,100,12000,N/A,175').power)
+        self.assertEqual(gpu_fields('40,2,100,12000,0,175').power,0)
+        self.assertIsNone(gpu_fields('40,2,100,12000,nan,175').power)
     def test_paused_telemetry_never_starts_nvidia_process(self) -> None:
         with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=AssertionError('GPU was queried')):
             self.assertIsNone(Telemetry(tmp,tmp).sample(False).gpu)
-    def test_gpu_query_falls_back_once_and_remembers_the_working_variant(self) -> None:
-        output='40,2,100,12000,5,5,175,200,405\n'
-        def run(args: list[str],**_: object) -> Mock:
-            return Mock(returncode=0 if 'power.draw.average' not in args[1] else 2,stdout=output)
-        with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',side_effect=run) as process:
-            telemetry=Telemetry(tmp,tmp)
-            gpu=telemetry.gpu()
-            self.assertEqual(gpu.temperature if gpu else None,40)
-            self.assertEqual(process.call_count,2)
-            telemetry.gpu()
-            self.assertEqual(process.call_count,3)
+    def test_gpu_sample_is_one_nvidia_query_for_power_draw_not_its_average(self) -> None:
+        # Driver 620.70 reports a placeholder 1.00 W average about one sample in four under load; power.draw stays right.
+        with tempfile.TemporaryDirectory() as tmp,patch('control_center.telemetry.subprocess.run',return_value=Mock(returncode=0,stdout='86,100,1100,12282,101.8,175\n')) as process:
+            gpu=Telemetry(tmp,tmp).gpu()
+        self.assertEqual((gpu.temperature,gpu.power) if gpu else None,(86,101.8))
+        self.assertEqual(process.call_count,1)
+        fields=process.call_args.args[0][1].removeprefix('--query-gpu=').split(',')
+        self.assertIn('power.draw',fields); self.assertNotIn('power.draw.average',fields)
     def test_cpu_usage_ignores_samples_across_a_long_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             stat=Path(tmp)/'stat'
